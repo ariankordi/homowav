@@ -1,3 +1,3 @@
-module homewav-proxy
+module homowav
 
 go 1.24

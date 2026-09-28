@@ -1,5 +1,5 @@
 # Build output.
-/homewav-proxy
+/homowav
 /bin/
 # Certificates, keys and captured credentials must never be committed.
 /certs/
