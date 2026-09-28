@@ -332,3 +332,49 @@ func TestUpstreamAuthority(t *testing.T) {
 		}
 	}
 }
+
+func TestReforward(t *testing.T) {
+	var hits atomic.Int64
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		body, _ := io.ReadAll(r.Body)
+		io.WriteString(w, r.Header.Get("X-Attempt")+":"+string(body))
+	}))
+	defer upstream.Close()
+
+	var firstBody, unbufferedErr string
+	p := &Proxy{Hosts: NewHostTable(), TLSConfig: &tls.Config{}}
+	p.Hosts.Handle("127.0.0.1", func(f *Flow) {
+		switch f.Request.URL.Path {
+		case "/retry":
+			f.RequestBody()
+			f.Request.Header.Set("X-Attempt", "1")
+			res, _ := f.Forward()
+			body, _ := res.Body()
+			firstBody = string(body)
+			f.Request.Header.Set("X-Attempt", "2")
+			f.Reforward() // The second response is what the client gets.
+		case "/unbuffered":
+			f.Forward()
+			if _, err := f.Reforward(); err != nil {
+				unbufferedErr = err.Error()
+			}
+		}
+	})
+	client := plainProxyClient(startEntry(t, p))
+	read := reader(t)
+
+	if got := read(client.Post(upstream.URL+"/retry", "text/plain", strings.NewReader("payload"))); got != "2:payload" {
+		t.Errorf("client got %q, want the reforwarded response", got)
+	}
+	if firstBody != "1:payload" {
+		t.Errorf("first attempt saw %q", firstBody)
+	}
+	if hits.Load() != 2 {
+		t.Errorf("upstream hits = %d, want 2", hits.Load())
+	}
+	read(client.Post(upstream.URL+"/unbuffered", "text/plain", strings.NewReader("x")))
+	if !strings.Contains(unbufferedErr, "not buffered") {
+		t.Errorf("unbuffered Reforward err = %q", unbufferedErr)
+	}
+}

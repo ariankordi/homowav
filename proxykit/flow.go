@@ -112,6 +112,38 @@ func (f *Flow) Forward() (*Response, error) {
 	return f.response, nil
 }
 
+// ErrNotReplayable is returned by Reforward when the request body was never
+// buffered (or did not fit in BodyLimit), so it cannot be sent a second time.
+var ErrNotReplayable = errors.New("proxykit: request body not buffered; call RequestBody before Forward")
+
+// Reforward discards the current upstream response and sends Request again,
+// for example after a hook refreshed a credential in Request.Header. A request
+// with a body can only be replayed if RequestBody (or SetRequestBody) buffered
+// it before the first Forward.
+func (f *Flow) Reforward() (*Response, error) {
+	if f.responded {
+		return nil, errors.New("proxykit: Reforward after the response was sent")
+	}
+	hasBody := f.Request.Body != nil && f.Request.Body != http.NoBody
+	if hasBody && (!f.reqBodyLoaded || f.reqBodyErr != nil) {
+		return nil, ErrNotReplayable
+	}
+	if f.response != nil {
+		f.response.stream.Close()
+		f.response = nil
+	}
+	// A fresh clone keeps the Transport from seeing a request it already consumed.
+	f.Request = f.Request.Clone(f.Request.Context())
+	if f.reqBodyLoaded {
+		f.Request.Body = http.NoBody
+		if len(f.reqBody) > 0 {
+			f.Request.Body = io.NopCloser(bytes.NewReader(f.reqBody))
+		}
+		f.Request.ContentLength = int64(len(f.reqBody))
+	}
+	return f.Forward()
+}
+
 // Respond sends a custom reply. If Forward was already called, the upstream
 // response is discarded. Only the first Respond (or the automatic forward) wins.
 func (f *Flow) Respond(status int, header http.Header, body []byte) {

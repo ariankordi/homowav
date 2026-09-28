@@ -1,7 +1,8 @@
 // Package proxykit is a small toolkit for PAC-driven intercepting proxies.
 //
-// Origin: copied unchanged from the proxy-tests demo (../go/proxykit, module
-// proxydemo), written in the same session as this project.
+// Origin: copied from the proxy-tests demo (../go/proxykit, module proxydemo).
+// Changes since the copy: Flow.Reforward and ErrNotReplayable were added (flow.go)
+// so a hook can retry a request after refreshing a credential.
 //
 // A client (for example an iPhone with a PAC URL configured) is steered by a
 // generated PAC file to send traffic for a chosen set of hostnames through the
