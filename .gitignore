@@ -1,0 +1,11 @@
+# Build output.
+/homewav-proxy
+/bin/
+# Certificates, keys and captured credentials must never be committed.
+/certs/
+*.pem
+*.key
+state.json
+*.state.json
+# Throwaway scratch output.
+/scratch/
