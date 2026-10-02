@@ -21,9 +21,13 @@ const (
 	apiPrefix = "/api/"
 	// refetchPath exchanges the remember cookies for a new PHPSESSID.
 	refetchPath = "/api/app/refetch-session/v2"
+	// loginPath checks the password. Its failures are the user's, never a stale session.
+	loginPath = "/api/app/login/"
 	// loggedOutCause is the "cause" of an {"ok":false} reply to an expired
 	// session. The server sends it with HTTP 200, never 401.
 	loggedOutCause = "You must be logged in to access the requested page"
+	// permissionCause means the session is fine but the account may not do this.
+	permissionCause = "You do not have permission to view this page"
 	// jwtParts is the number of dot-separated segments in a JWT.
 	jwtParts = 3
 	// Form fields that carry the voip token: login uses one name, refetch the other.
@@ -44,9 +48,21 @@ type envelope struct {
 // succeeded reports an explicit {"ok": true}.
 func (e envelope) succeeded() bool { return e.OK != nil && *e.OK }
 
-// loggedOut reports the specific "session expired" failure. Other failures
-// (such as "You do not have permission") must not trigger a renewal.
+// loggedOut reports the specific "session expired" failure.
 func (e envelope) loggedOut() bool { return e.OK != nil && !*e.OK && e.Cause == loggedOutCause }
+
+// failed reports an explicit {"ok": false}.
+func (e envelope) failed() bool { return e.OK != nil && !*e.OK }
+
+// maybeStaleSession reports a failure that a dead session could cause. The
+// server does not always say "logged in": a dead session on
+// /api/app/prisons/<id> (opening a conversation) gives "Invalid request".
+// Permission errors are the account's, so a new session cannot fix them.
+func (e envelope) maybeStaleSession() bool { return e.failed() && e.Cause != permissionCause }
+
+// isAuthPath reports the calls that create sessions, which are never retried
+// with a different session (a wrong password must not look like a logout).
+func isAuthPath(path string) bool { return path == loginPath || path == refetchPath }
 
 // parseEnvelope decodes body if the content type is JSON and it has an "ok" field.
 func parseEnvelope(contentType string, body []byte) (envelope, bool) {

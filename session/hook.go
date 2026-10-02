@@ -9,8 +9,8 @@ import (
 	"homowav/proxykit"
 )
 
-// maxRecoveries bounds retries per request: one with a session another
-// request already renewed, and one after our own refetch.
+// maxRecoveries bounds retries per request after the first replay: one with a
+// session another request already renewed, and one after our own refetch.
 const maxRecoveries = 2
 
 // Service ties the Store and Renewer to the proxy hook and the local API.
@@ -20,10 +20,16 @@ type Service struct {
 	Log     *slog.Logger
 }
 
-// Hook is the proxykit hook for the API host. For JSON API calls it records
-// credentials the server accepted, and if the server reports a logout it
-// renews the session and replays the request before the app sees the failure.
-// Everything else is forwarded untouched.
+// Hook is the proxykit hook for the API host. For JSON API calls it:
+//
+//  1. sends the stored session instead of the app's if they differ, so a dead
+//     session in the phone's cookie jar costs no failed round trip;
+//  2. records credentials the server accepted;
+//  3. on a failure a dead session could cause, finds a working session and
+//     replays the request before the app sees the failure;
+//  4. tells the app the live session with Set-Cookie, so its jar converges.
+//
+// Everything outside /api/ is forwarded untouched.
 func (s *Service) Hook(f *proxykit.Flow) {
 	if !strings.HasPrefix(f.Request.URL.Path, apiPrefix) {
 		return
@@ -32,6 +38,13 @@ func (s *Service) Hook(f *proxykit.Flow) {
 	if err != nil {
 		return // Too large to replay; let it stream through untouched.
 	}
+	appSession := requestCookie(f.Request, sessionCookie)
+	used := appSession
+	if stored := s.Store.Snapshot().PHPSESSID; stored != "" && stored != appSession && !isAuthPath(f.Request.URL.Path) {
+		replaceCookie(f.Request.Header, sessionCookie, stored)
+		used = stored
+	}
+
 	res, err := f.Forward()
 	if err != nil {
 		return // proxykit turns this into a 502.
@@ -41,40 +54,73 @@ func (s *Service) Hook(f *proxykit.Flow) {
 	case !ok:
 	case env.succeeded():
 		s.commit(f, requestBody, res.Header, env)
-	case env.loggedOut():
-		s.recover(f, requestBody)
+	case env.maybeStaleSession() && !isAuthPath(f.Request.URL.Path):
+		var recovered bool
+		if used, recovered = s.recover(f, requestBody, appSession, used, !env.loggedOut()); !recovered {
+			return // The app gets the failure and runs its own recovery.
+		}
+		res, _ = f.Forward() // Cached: Reforward left the accepted reply in place.
+	default:
+		return // A failure that is not about the session.
 	}
+	s.offerSession(f, res, appSession, used)
 }
 
-// recover swaps in a working PHPSESSID and replays the request. If renewal
-// fails, the logged-out reply goes to the app so its own recovery runs.
-func (s *Service) recover(f *proxykit.Flow, requestBody []byte) {
-	failed := requestCookie(f.Request, sessionCookie)
+// recover looks for a session the server accepts and replays the request with
+// it, leaving that reply as the flow's response. used is the session the failed
+// attempt carried. speculative marks an ambiguous failure (see Renewer.Recover).
+// Returns the accepted session, or false if every attempt failed.
+func (s *Service) recover(f *proxykit.Flow, requestBody []byte, appSession, used string, speculative bool) (string, bool) {
+	failed := used
+	// Cheapest first: if we swapped the app's session out and the swap was the
+	// problem (for example a stale state file), the app's own may still be live.
+	if appSession != "" && appSession != used {
+		if s.attempt(f, requestBody, appSession) {
+			return appSession, true
+		}
+		failed = appSession
+	}
 	for range maxRecoveries {
-		session, err := s.Renewer.Recover(f.Request.Context(), failed)
+		session, err := s.Renewer.Recover(f.Request.Context(), failed, speculative)
 		if err != nil {
-			return
+			return used, false
 		}
-		replaceCookie(f.Request.Header, sessionCookie, session)
-		res, err := f.Reforward()
-		if err != nil {
-			f.Log.Warn("replay after renewal failed", "err", err)
-			return
-		}
-		env, ok := inspect(res)
-		if !ok || !env.loggedOut() {
-			if ok && env.succeeded() {
-				s.commit(f, requestBody, res.Header, env)
-				// Hand the app the working session so its next call succeeds directly.
-				if !setsCookie(res.Header, sessionCookie) {
-					res.Header.Add("Set-Cookie", (&http.Cookie{Name: sessionCookie, Value: session, Path: "/"}).String())
-				}
-				f.Log.Info("request recovered", "failed", Fingerprint(failed), "session", Fingerprint(session))
-			}
-			return
+		if s.attempt(f, requestBody, session) {
+			f.Log.Info("request recovered", "failed", Fingerprint(used), "session", Fingerprint(session))
+			return session, true
 		}
 		failed = session
 	}
+	return used, false
+}
+
+// attempt replays the request with session and reports whether the server
+// accepted it. Replies that are not an {"ok":...} envelope (Pusher's auth
+// reply, for one) count as accepted: they are not a session failure.
+func (s *Service) attempt(f *proxykit.Flow, requestBody []byte, session string) bool {
+	replaceCookie(f.Request.Header, sessionCookie, session)
+	res, err := f.Reforward()
+	if err != nil {
+		f.Log.Warn("replay failed", "err", err)
+		return false
+	}
+	env, ok := inspect(res)
+	if ok && env.succeeded() {
+		s.commit(f, requestBody, res.Header, env)
+	}
+	return !ok || !env.failed()
+}
+
+// offerSession adds Set-Cookie for the live session when the app sent a
+// different one, so the phone's cookie jar stops presenting a dead session.
+// It logs what it offers: if the app keeps sending its old value afterwards,
+// these lines show it ignores the cookie.
+func (s *Service) offerSession(f *proxykit.Flow, res *proxykit.Response, appSession, used string) {
+	if used == "" || used == appSession || res.StatusCode != http.StatusOK || setsCookie(res.Header, sessionCookie) {
+		return
+	}
+	res.Header.Add("Set-Cookie", (&http.Cookie{Name: sessionCookie, Value: used, Path: "/"}).String())
+	f.Log.Info("offered live session to app", "app_had", Fingerprint(appSession), "live", Fingerprint(used))
 }
 
 // commit stores what a successful exchange revealed.

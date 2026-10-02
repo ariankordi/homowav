@@ -45,10 +45,13 @@ This is learned from a capture of iOS app 2.28.0. Values were compared by MD5, n
 - **`PHPSESSID`** authorizes API calls. It expires after a period of inactivity.
 - **`asps` and `esur`** are "remember" cookies that last 30 days. `POST /api/app/refetch-session/v2` swaps them for a new `PHPSESSID` and doesn't need the password or a signature. They are the credential that actually matters, and the state file keeps them across restarts.
 - **The JWT** (RS256, 1 h) comes only from the login response. The server accepted calls without one, so it's recorded but not relied on.
-- **Logged out** looks like HTTP 200 with `{"ok":false,"cause":"You must be logged in to access the requested page"}`, not a 401.
-  - When the proxy sees this, it takes a working session from its store, or from a single refetch shared by every request that failed at the same time.
-  - It then replays the app's request and returns the response along with a `Set-Cookie`, so the app picks up the new session.
-  - Other failures, such as "You do not have permission", pass through unchanged.
+- **Logged out** usually looks like HTTP 200 with `{"ok":false,"cause":"You must be logged in to access the requested page"}`, not a 401. Not always: a dead session on `GET /api/app/prisons/<id>` (which opening a conversation calls) gives `{"ok":false,"cause":"Invalid request"}`, and the app shows "The data couldn't be read because it's missing."
+- **What the proxy does about it**, for every `/api/` call except login and refetch:
+  1. It sends the stored session instead of the phone's if they differ, so a dead cookie on the phone costs no failed round trip.
+  2. If the server still answers `ok:false` (any cause except "You do not have permission"), it tries the phone's own session, then a session another request already renewed, then one shared refetch. It replays the request and returns that reply.
+  3. Renewals prompted by an ambiguous cause (anything other than the logged-out wording) happen at most once a minute, so a request that is simply invalid can't churn sessions.
+  4. When the session it used differs from the phone's, the reply carries `Set-Cookie: PHPSESSID=<live>` and the log shows `offered live session to app`. If those lines keep repeating with the same `app_had` value, the app ignores the cookie.
+  5. If nothing works, the phone gets the original failure and runs its own recovery.
 - **`X-HomeWAV-Signature`** is an RSA signature over the `Date` header, created on the device. The proxy passes the app's value through unchanged. It doesn't appear to be enforced.
 
 ## Layout

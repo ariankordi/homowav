@@ -20,6 +20,10 @@ const (
 	// failureBackoff stops a burst of logged-out requests from each hammering
 	// refetch-session after it has just failed.
 	failureBackoff = 5 * time.Second
+	// speculativeCooldown limits renewals triggered by ambiguous failures (not
+	// the explicit logged-out reply), so a request that is simply invalid
+	// cannot make us mint a new session on every attempt.
+	speculativeCooldown = time.Minute
 	// maxRefetchBody caps the refetch reply; it is a user record, a few KiB.
 	maxRefetchBody = 1 << 20
 	// defaultRefetchUserAgent is what app 2.28.0 sent, used until one is observed.
@@ -29,6 +33,9 @@ const (
 // ErrNoRememberCookies means renewal is impossible until the app has been
 // used through the proxy at least once.
 var ErrNoRememberCookies = errors.New("session: no remember cookies captured yet; open the app once through the proxy")
+
+// ErrRenewedRecently is returned for a speculative recovery inside the cooldown.
+var ErrRenewedRecently = errors.New("session: renewed too recently to try again for an ambiguous failure")
 
 // Renewer exchanges the remember cookies for a fresh PHPSESSID. Concurrent
 // callers are serialized, so a burst of logged-out requests costs one refetch.
@@ -41,6 +48,7 @@ type Renewer struct {
 	mu          sync.Mutex
 	lastFailure time.Time
 	lastErr     error
+	lastSuccess time.Time
 	attempts    atomic.Int64
 }
 
@@ -58,15 +66,19 @@ func NewRenewer(store *Store, transport http.RoundTripper, host string, log *slo
 // Attempts reports how many refetch requests have been sent (for tests and status).
 func (r *Renewer) Attempts() int64 { return r.attempts.Load() }
 
-// Recover returns a PHPSESSID to retry with after failed was rejected as
-// logged out. If the store already holds a different session (another
-// request renewed it, or the app logged in again), that one is returned
-// without contacting the server.
-func (r *Renewer) Recover(ctx context.Context, failed string) (string, error) {
+// Recover returns a PHPSESSID to retry with after failed was rejected. If the
+// store already holds a different session (another request renewed it, or the
+// app logged in again), that one is returned without contacting the server.
+// speculative marks an ambiguous failure: a refetch is then allowed at most
+// once per speculativeCooldown.
+func (r *Renewer) Recover(ctx context.Context, failed string, speculative bool) (string, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if current := r.store.Snapshot().PHPSESSID; current != "" && current != failed {
 		return current, nil
+	}
+	if speculative && time.Since(r.lastSuccess) < speculativeCooldown {
+		return "", ErrRenewedRecently
 	}
 	return r.refetchLocked(ctx)
 }
@@ -114,7 +126,7 @@ func (r *Renewer) refetchLocked(ctx context.Context) (string, error) {
 		r.log.Warn("session renewal failed", "err", err)
 		return "", err
 	}
-	r.lastFailure, r.lastErr = time.Time{}, nil
+	r.lastFailure, r.lastErr, r.lastSuccess = time.Time{}, nil, time.Now()
 	return session, nil
 }
 

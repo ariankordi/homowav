@@ -45,6 +45,7 @@ type fakeHomewav struct {
 	failRefetch atomic.Bool
 	refetches   atomic.Int64
 	lastCookie  atomic.Value // string: Cookie header of the last /api/echo call.
+	echoHits    atomic.Int64
 }
 
 func newFakeHomewav() *fakeHomewav { return &fakeHomewav{valid: map[string]bool{}} }
@@ -57,6 +58,13 @@ func (h *fakeHomewav) mint() string {
 	id := fmt.Sprintf("sess%d", h.minted)
 	h.valid[id] = true
 	return id
+}
+
+// expire logs one session out.
+func (h *fakeHomewav) expire(id string) {
+	h.mu.Lock()
+	delete(h.valid, id)
+	h.mu.Unlock()
 }
 
 // expireAll logs every session out, as the server does after idling.
@@ -113,10 +121,26 @@ func (h *fakeHomewav) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		reply(w, map[string]any{"ok": true, "body": map[string]any{"is_logged_in": true}})
 	case r.URL.Path == "/api/app/prisons/1":
 		reply(w, map[string]any{"ok": false, "cause": permissionMsg})
+	case r.URL.Path == "/api/app/prisons/2" || r.URL.Path == "/api/app/prisons/3":
+		// Like the real prisons endpoint: a dead session gets "Invalid request",
+		// not the logged-out wording. /3 is invalid no matter the session.
+		if r.URL.Path == "/api/app/prisons/3" || !h.isValid(r) {
+			reply(w, map[string]any{"ok": false, "cause": "Invalid request"})
+			return
+		}
+		reply(w, map[string]any{"ok": true, "body": map[string]any{"name": "somewhere"}})
+	case r.URL.Path == "/api/app/visitor/pusher-auth/":
+		// Success has no "ok" field, as in the real API.
+		if !h.isValid(r) {
+			loggedOutReply(w)
+			return
+		}
+		reply(w, map[string]any{"auth": "key:sig"})
 	case r.URL.Path == "/api/binary":
 		w.Header().Set("Content-Type", "application/octet-stream")
 		io.WriteString(w, "not json")
 	default:
+		h.echoHits.Add(1) // Counts failed attempts too: a wasted round trip must be visible.
 		if !h.isValid(r) {
 			loggedOutReply(w)
 			return
@@ -278,12 +302,81 @@ func TestLogoutIsRecoveredTransparently(t *testing.T) {
 	}
 }
 
-func TestStaleAppSessionUsesStoredOneWithoutRefetch(t *testing.T) {
+func TestStaleAppSessionIsSwappedBeforeSending(t *testing.T) {
 	h := newHarness(t)
-	h.login(t)
-	env, _ := h.call(t, "/api/echo", "PHPSESSID=old-one", "")
+	live := h.login(t)
+	env, resp := h.call(t, "/api/echo", "PHPSESSID=old-one", "")
 	if !env.succeeded() || h.fake.refetches.Load() != 0 {
 		t.Errorf("env=%+v refetches=%d, want success with no refetch", env, h.fake.refetches.Load())
+	}
+	if n := h.fake.echoHits.Load(); n != 1 {
+		t.Errorf("upstream saw %d attempts, want 1 (no failed round trip)", n)
+	}
+	if got := resp.Header.Get("Set-Cookie"); !strings.HasPrefix(got, sessionCookie+"="+live) {
+		t.Errorf("Set-Cookie to app = %q, want the live session", got)
+	}
+	// An app already on the live session is not sent a redundant cookie.
+	if _, resp := h.call(t, "/api/echo", "PHPSESSID="+live, ""); resp.Header.Get("Set-Cookie") != "" {
+		t.Errorf("redundant Set-Cookie %q", resp.Header.Get("Set-Cookie"))
+	}
+}
+
+func TestInvalidRequestFromDeadSessionIsRecovered(t *testing.T) {
+	h := newHarness(t)
+	stale := h.login(t)
+	h.fake.expireAll()
+	env, resp := h.call(t, "/api/app/prisons/2", "PHPSESSID="+stale, "")
+	if !env.succeeded() {
+		t.Fatalf("client saw %+v, want the recovered reply", env)
+	}
+	if !strings.HasPrefix(resp.Header.Get("Set-Cookie"), sessionCookie+"="+h.service.Store.Snapshot().PHPSESSID) {
+		t.Errorf("Set-Cookie = %q", resp.Header.Get("Set-Cookie"))
+	}
+}
+
+func TestDeadStoreLiveApp(t *testing.T) {
+	h := newHarness(t)
+	storedDead := h.login(t)
+	live := h.fake.mint()
+	h.fake.expire(storedDead) // E.g. a state file from days ago.
+
+	env, _ := h.call(t, "/api/echo", "PHPSESSID="+live, "")
+	if !env.succeeded() || h.fake.refetches.Load() != 0 {
+		t.Errorf("env=%+v refetches=%d, want the app's own session tried before any refetch", env, h.fake.refetches.Load())
+	}
+	if got := h.service.Store.Snapshot().PHPSESSID; got != live {
+		t.Errorf("store did not converge on the app's live session: %q", got)
+	}
+}
+
+func TestAmbiguousFailureRenewsAtMostOncePerCooldown(t *testing.T) {
+	h := newHarness(t)
+	session := h.login(t)
+	for range 3 {
+		if env, _ := h.call(t, "/api/app/prisons/3", "PHPSESSID="+session, ""); env.Cause != "Invalid request" {
+			t.Fatalf("got %+v, want the original failure", env)
+		}
+	}
+	if n := h.fake.refetches.Load(); n != 1 {
+		t.Errorf("refetches = %d, want 1 for a request that is simply invalid", n)
+	}
+}
+
+func TestReplyWithoutEnvelopeIsRecovered(t *testing.T) {
+	h := newHarness(t)
+	stale := h.login(t)
+	h.fake.expireAll()
+	_, resp := h.call(t, "/api/app/visitor/pusher-auth/", "PHPSESSID="+stale, "")
+	if !strings.HasPrefix(resp.Header.Get("Set-Cookie"), sessionCookie+"=") {
+		t.Errorf("recovered pusher-auth should hand the app the new session, got %q", resp.Header.Get("Set-Cookie"))
+	}
+}
+
+func TestWrongPasswordIsNotTreatedAsLogout(t *testing.T) {
+	h := newHarness(t)
+	env, _ := h.call(t, "/api/app/login/?username=x", "", url.Values{loginVoipField: {"wrong"}}.Encode())
+	if env.Cause != "bad login" || h.fake.refetches.Load() != 0 {
+		t.Errorf("env=%+v refetches=%d, a failed login must pass through untouched", env, h.fake.refetches.Load())
 	}
 }
 
