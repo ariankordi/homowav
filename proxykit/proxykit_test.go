@@ -1,6 +1,7 @@
 package proxykit
 
 import (
+	"bufio"
 	"bytes"
 	"compress/gzip"
 	"crypto/ecdsa"
@@ -10,6 +11,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"errors"
+	"fmt"
 	"io"
 	"math/big"
 	"net"
@@ -191,6 +193,39 @@ func TestFlowPaths(t *testing.T) {
 		got := reader(t)(client.Get(unlisted + "/tap"))
 		if got != "upstream:" {
 			t.Fatalf("got %q", got)
+		}
+	})
+	t.Run("ListedOnly refuses unlisted forwards and tunnels", func(t *testing.T) {
+		p.ListedOnly = true
+		defer func() { p.ListedOnly = false }()
+		before := hits.Load()
+		unlisted := strings.Replace(base, "127.0.0.1", "localhost", 1)
+		resp, err := client.Get(unlisted + "/tap")
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusForbidden {
+			t.Errorf("plain forward status = %d, want 403", resp.StatusCode)
+		}
+		// A raw CONNECT to an unlisted target must not open a tunnel either.
+		conn, err := net.Dial("tcp", strings.TrimPrefix(entry.URL, "http://"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer conn.Close()
+		target := strings.Replace(strings.TrimPrefix(base, "http://"), "127.0.0.1", "localhost", 1)
+		fmt.Fprintf(conn, "CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n", target, target)
+		connectResp, err := http.ReadResponse(bufio.NewReader(conn), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		connectResp.Body.Close()
+		if connectResp.StatusCode != http.StatusForbidden {
+			t.Errorf("CONNECT status = %d, want 403", connectResp.StatusCode)
+		}
+		if hits.Load() != before {
+			t.Error("upstream was contacted despite ListedOnly")
 		}
 	})
 	t.Run("pac reflects live table", func(t *testing.T) {

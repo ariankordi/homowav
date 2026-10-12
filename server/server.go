@@ -16,8 +16,8 @@ import (
 	"sync"
 	"time"
 
-	"homowav/proxykit"
-	"homowav/session"
+	"hwclient/proxykit"
+	"hwclient/session"
 )
 
 const (
@@ -57,7 +57,7 @@ type Config struct {
 	Transport http.RoundTripper
 }
 
-// Server is a configured, not yet running, homowav instance.
+// Server is a configured, not yet running, hwclient instance.
 type Server struct {
 	cfg     Config
 	proxy   *proxykit.Proxy

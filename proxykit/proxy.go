@@ -40,6 +40,11 @@ type Proxy struct {
 	Logger *slog.Logger
 	// AccessLog enables one log line per request/tunnel.
 	AccessLog bool
+	// ListedOnly refuses CONNECT tunnels and plain-HTTP forwarding to hosts
+	// that are not in Hosts. Without it the entry port is an open forward
+	// proxy, which also lets any LAN client reach this machine's loopback
+	// services (including the local endpoints, as a "loopback" caller).
+	ListedOnly bool
 
 	startOnce sync.Once
 	inbound   *chanListener
@@ -194,6 +199,11 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 		target = net.JoinHostPort(target, defaultHTTPSPort)
 	}
 	_, intercept := p.Hosts.Lookup(target)
+	if !intercept && p.ListedOnly {
+		p.logAccess("tunnel-refused", "CONNECT", target, r.RemoteAddr)
+		http.Error(w, "proxykit: host not served by this proxy", http.StatusForbidden)
+		return
+	}
 
 	hijacker, ok := w.(http.Hijacker)
 	if !ok {
@@ -250,6 +260,11 @@ func (p *Proxy) serveFlow(w http.ResponseWriter, r *http.Request, scheme string,
 	hook, listed := p.Hosts.Lookup(r.Host)
 	if !listed && !plainProxy {
 		http.Error(w, "proxykit: host not intercepted", http.StatusMisdirectedRequest)
+		return
+	}
+	if !listed && p.ListedOnly {
+		p.logAccess("forward-refused", r.Method, r.Host, r.RemoteAddr)
+		http.Error(w, "proxykit: host not served by this proxy", http.StatusForbidden)
 		return
 	}
 

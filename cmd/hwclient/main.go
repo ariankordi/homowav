@@ -1,4 +1,4 @@
-// Command homowav runs the session-keeping proxy for the HomeWAV app.
+// Command hwclient runs the session-keeping proxy for the HomeWAV app.
 //
 // Point the phone at http://<this-box>:<port>/proxy.pac (Wi-Fi > Configure
 // Proxy > Automatic), trust the CA that signed -cert, and open the app once.
@@ -17,12 +17,12 @@ import (
 	"syscall"
 	"time"
 
-	"homowav/server"
-	"homowav/session"
+	"hwclient/server"
+	"hwclient/session"
 )
 
 // secretEnv lets the API secret stay out of the process list.
-const secretEnv = "HOMOWAV_API_SECRET"
+const secretEnv = "HWCLIENT_API_SECRET"
 
 // defaultKeepAlive refreshes well inside the remember cookies' 30-day window.
 const defaultKeepAlive = 12 * time.Hour

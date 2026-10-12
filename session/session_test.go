@@ -26,7 +26,7 @@ import (
 	"testing"
 	"time"
 
-	"homowav/proxykit"
+	"hwclient/proxykit"
 )
 
 // Fixed fake-server values. None of these come from a real capture.
