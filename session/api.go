@@ -1,10 +1,8 @@
 package session
 
 import (
-	"crypto/subtle"
 	"encoding/json"
 	"io"
-	"net"
 	"net/http"
 	"time"
 )
@@ -24,6 +22,7 @@ type Status struct {
 	JWTExpires         time.Time `json:"jwt_expires,omitzero"`
 	JWTExpired         bool      `json:"jwt_expired"`
 	HaveVoipToken      bool      `json:"have_voip_token"`
+	VisitorID          string    `json:"visitor_id"`
 	RenewAttempts      int64     `json:"renew_attempts"`
 }
 
@@ -41,6 +40,7 @@ func (s *Service) Status() Status {
 		JWTExpires:         c.JWTExpires,
 		JWTExpired:         !c.JWTExpires.IsZero() && time.Now().After(c.JWTExpires),
 		HaveVoipToken:      c.VoipToken != "",
+		VisitorID:          c.VisitorID,
 		RenewAttempts:      s.Renewer.Attempts(),
 	}
 }
@@ -52,9 +52,9 @@ func (s *Service) Status() Status {
 //	GET /_/cookie   a ready-to-use Cookie header value
 //	GET /_/session  JSON Status, no secrets
 //
-// Add ?renew=1 to a value endpoint to fetch a new session first. Callers must
-// be on loopback, or send "Authorization: Bearer <secret>" when secret is set.
-func (s *Service) Handler(secret string) http.Handler {
+// Add ?renew=1 to a value endpoint to fetch a new session first. The handler
+// does no access control of its own: wrap it (see package access).
+func (s *Service) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("GET /_/sessid", s.valueHandler(func(c Creds) string { return c.PHPSESSID }))
 	mux.Handle("GET /_/token", s.valueHandler(func(c Creds) string { return c.JWTAccess }))
@@ -66,7 +66,7 @@ func (s *Service) Handler(secret string) http.Handler {
 		encoder.SetIndent("", "\t")
 		encoder.Encode(s.Status())
 	})
-	return requireLocalOrSecret(secret, mux)
+	return mux
 }
 
 // valueHandler serves one credential as text/plain with no trailing newline,
@@ -88,27 +88,4 @@ func (s *Service) valueHandler(value func(Creds) string) http.Handler {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		io.WriteString(w, v)
 	})
-}
-
-// requireLocalOrSecret admits loopback callers, and others only with the
-// shared secret. The PAC is served elsewhere and stays public for the phone.
-func requireLocalOrSecret(secret string, next http.Handler) http.Handler {
-	want := []byte("Bearer " + secret)
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		authorized := secret != "" && subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), want) == 1
-		if !isLoopback(r.RemoteAddr) && !authorized {
-			http.Error(w, "forbidden: credential endpoints are loopback-only unless an API secret is set", http.StatusForbidden)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
-func isLoopback(remoteAddr string) bool {
-	host, _, err := net.SplitHostPort(remoteAddr)
-	if err != nil {
-		host = remoteAddr
-	}
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
 }

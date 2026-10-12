@@ -16,13 +16,11 @@ import (
 	"io/fs"
 	"maps"
 	"os"
-	"path/filepath"
 	"sync"
 	"time"
-)
 
-// stateFileMode keeps the state file private: it holds live credentials.
-const stateFileMode = 0o600
+	"hwclient/fileutil"
+)
 
 // Creds is everything needed to act as the logged-in app. The zero value
 // means nothing has been captured yet.
@@ -44,6 +42,10 @@ type Creds struct {
 	VoipToken string `json:"voip_token,omitempty"`
 	// RefetchUserAgent is the User-Agent the app used for refetch-session.
 	RefetchUserAgent string `json:"refetch_user_agent,omitempty"`
+
+	// VisitorID is the account's numeric id, seen in the app's own requests.
+	// It is an identifier, not a secret; API calls need it as a parameter.
+	VisitorID string `json:"visitor_id,omitempty"`
 
 	// SessionUpdated is when PHPSESSID last changed.
 	SessionUpdated time.Time `json:"session_updated,omitzero"`
@@ -140,8 +142,8 @@ func (s *Store) Update(edit func(c *Creds) (changed bool)) error {
 	return err
 }
 
-// saveLocked writes the state file atomically (temp file + rename) so a crash
-// never leaves a half-written file. The caller holds s.mu.
+// saveLocked writes the state file atomically, with a private mode because it
+// holds live credentials. The caller holds s.mu.
 func (s *Store) saveLocked() error {
 	if s.path == "" {
 		return nil
@@ -150,23 +152,7 @@ func (s *Store) saveLocked() error {
 	if err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(s.path), filepath.Base(s.path)+".tmp*")
-	if err != nil {
-		return fmt.Errorf("saving state: %w", err)
-	}
-	defer os.Remove(tmp.Name()) // No-op after a successful rename.
-	if err := tmp.Chmod(stateFileMode); err != nil {
-		tmp.Close()
-		return fmt.Errorf("saving state: %w", err)
-	}
-	if _, err := tmp.Write(append(data, '\n')); err != nil {
-		tmp.Close()
-		return fmt.Errorf("saving state: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("saving state: %w", err)
-	}
-	if err := os.Rename(tmp.Name(), s.path); err != nil {
+	if err := fileutil.WriteAtomic(s.path, append(data, '\n'), fileutil.PrivateFileMode); err != nil {
 		return fmt.Errorf("saving state: %w", err)
 	}
 	return nil

@@ -33,6 +33,13 @@ const (
 	// Form fields that carry the voip token: login uses one name, refetch the other.
 	loginVoipField   = "voipToken"
 	refetchVoipField = "token"
+	// inmatesPath lists the account's contacts; its form field "id" is the visitor id.
+	inmatesPath = "/api/app/inmates-by-visitor"
+	// inmatesVisitorField is that form field.
+	inmatesVisitorField = "id"
+	// visitorIDParam names the visitor id everywhere else (message/init's
+	// query, message/send's form).
+	visitorIDParam = "visitor_id"
 )
 
 // rememberCookies are the long-lived (30-day) cookies that refetch-session accepts.
@@ -87,6 +94,7 @@ type observation struct {
 	jwtRefresh       string
 	voipToken        string
 	refetchUserAgent string
+	visitorID        string
 }
 
 // observeRequest reads credentials the app sent. body is the buffered
@@ -99,10 +107,18 @@ func observeRequest(r *http.Request, body []byte) observation {
 	if token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer "); ok && isJWT(token) {
 		obs.jwtAccess = token
 	}
+	visitorID := r.URL.Query().Get(visitorIDParam)
 	if isForm(r.Header.Get("Content-Type")) {
 		if form, err := url.ParseQuery(string(body)); err == nil {
 			obs.voipToken = firstNonEmpty(form.Get(loginVoipField), form.Get(refetchVoipField))
+			visitorID = firstNonEmpty(visitorID, form.Get(visitorIDParam))
+			if r.URL.Path == inmatesPath {
+				visitorID = firstNonEmpty(visitorID, form.Get(inmatesVisitorField))
+			}
 		}
+	}
+	if isDigits(visitorID) {
+		obs.visitorID = visitorID
 	}
 	if r.URL.Path == refetchPath {
 		obs.refetchUserAgent = r.Header.Get("User-Agent")
@@ -183,6 +199,7 @@ func (o observation) apply(c *Creds, now time.Time) (changed bool) {
 	set(&c.JWTRefresh, o.jwtRefresh)
 	set(&c.VoipToken, o.voipToken)
 	set(&c.RefetchUserAgent, o.refetchUserAgent)
+	set(&c.VisitorID, o.visitorID)
 	return changed
 }
 
@@ -231,6 +248,19 @@ func jwtExpiry(token string) time.Time {
 	return time.Unix(claims.Exp, 0)
 }
 
+// isDigits reports a non-empty all-digit string, the only shape ids take.
+func isDigits(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, char := range value {
+		if char < '0' || char > '9' {
+			return false
+		}
+	}
+	return true
+}
+
 func isForm(contentType string) bool {
 	mediaType, _, _ := mime.ParseMediaType(contentType)
 	return mediaType == "application/x-www-form-urlencoded"
@@ -244,3 +274,7 @@ func firstNonEmpty(values ...string) string {
 	}
 	return ""
 }
+
+// IsAuthPath reports the API calls that create or replace sessions. Local
+// tools must never send these: only the app logs in.
+func IsAuthPath(path string) bool { return isAuthPath(path) }

@@ -1,7 +1,7 @@
 // Package server assembles the proxy, the session hook and the local
 // endpoints into one runnable unit. It is what the CLI runs and what a future
 // web UI embeds: construct a Config in code, optionally add routes with
-// Handle, then Run.
+// Handle, then Run. Package app does exactly that for the full program.
 package server
 
 import (
@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"hwclient/access"
 	"hwclient/proxykit"
 	"hwclient/session"
 )
@@ -31,7 +32,7 @@ const (
 	pacPath = "/proxy.pac"
 )
 
-// Config describes one server. Only Certificate is required.
+// Config describes one server. Only a certificate source is required.
 type Config struct {
 	// Listen is the plaintext address serving the PAC, CONNECT and /_/ endpoints.
 	Listen string
@@ -39,12 +40,19 @@ type Config struct {
 	HTTPSListen string
 	// Certificate is presented for the intercepted host; the phone must trust its issuer.
 	Certificate tls.Certificate
+	// GetCertificate supplies the certificate instead, for sources that
+	// re-issue it over time (see package certs). It wins over Certificate.
+	GetCertificate func(*tls.ClientHelloInfo) (*tls.Certificate, error)
 	// PACAddr is the "host:port" written into the PAC. Empty uses the Host the phone fetched it with.
 	PACAddr string
 	// StatePath persists credentials across restarts. Empty keeps them in memory only.
 	StatePath string
-	// APISecret lets non-loopback callers use /_/ endpoints with "Authorization: Bearer <secret>".
-	APISecret string
+	// Gate guards the /_/ credential endpoints. Nil admits loopback callers only.
+	Gate func(http.Handler) http.Handler
+	// OpenProxy also tunnels and forwards hosts that are not intercepted. It
+	// is off by default: the PAC never sends other hosts here, and an open
+	// proxy lets any LAN client reach this machine's loopback services.
+	OpenProxy bool
 	// Host is the API host to intercept. Empty means session.DefaultHost.
 	Host string
 	// KeepAlive renews the session this often even if the app is idle. Zero disables it.
@@ -70,8 +78,11 @@ type Server struct {
 
 // New validates cfg, loads saved credentials, and wires everything together.
 func New(cfg Config) (*Server, error) {
-	if len(cfg.Certificate.Certificate) == 0 {
-		return nil, errors.New("server: Config.Certificate is required")
+	if len(cfg.Certificate.Certificate) == 0 && cfg.GetCertificate == nil {
+		return nil, errors.New("server: Config.Certificate or Config.GetCertificate is required")
+	}
+	if cfg.Gate == nil {
+		cfg.Gate = access.Gate{}.Wrap
 	}
 	if cfg.Listen == "" {
 		cfg.Listen = DefaultListen
@@ -94,19 +105,26 @@ func New(cfg Config) (*Server, error) {
 		Store:   store,
 		Renewer: session.NewRenewer(store, cfg.Transport, cfg.Host, cfg.Logger),
 		Log:     cfg.Logger,
+		Client:  &http.Client{Transport: cfg.Transport},
+		BaseURL: "https://" + cfg.Host,
+	}
+	tlsConfig := &tls.Config{Certificates: []tls.Certificate{cfg.Certificate}}
+	if cfg.GetCertificate != nil {
+		tlsConfig = &tls.Config{GetCertificate: cfg.GetCertificate}
 	}
 	proxy := &proxykit.Proxy{
-		Hosts:     proxykit.NewHostTable(),
-		TLSConfig: &tls.Config{Certificates: []tls.Certificate{cfg.Certificate}},
-		Transport: cfg.Transport,
-		Logger:    cfg.Logger,
-		AccessLog: cfg.AccessLog,
+		Hosts:      proxykit.NewHostTable(),
+		TLSConfig:  tlsConfig,
+		Transport:  cfg.Transport,
+		Logger:     cfg.Logger,
+		AccessLog:  cfg.AccessLog,
+		ListedOnly: !cfg.OpenProxy,
 	}
 	proxy.Hosts.Handle(cfg.Host, service.Hook)
 
 	local := http.NewServeMux()
 	local.Handle("GET "+pacPath, proxy.PACHandler(cfg.PACAddr))
-	local.Handle("/_/", service.Handler(cfg.APISecret))
+	local.Handle("/_/", cfg.Gate(service.Handler()))
 	return &Server{cfg: cfg, proxy: proxy, service: service, local: local}, nil
 }
 

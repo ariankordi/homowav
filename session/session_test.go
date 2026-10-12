@@ -10,6 +10,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -26,6 +27,8 @@ import (
 	"testing"
 	"time"
 
+	"hwclient/access"
+	"hwclient/fileutil"
 	"hwclient/proxykit"
 )
 
@@ -184,7 +187,10 @@ func newHarness(t *testing.T) *harness {
 		t.Fatal(err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	service := &Service{Store: store, Renewer: NewRenewer(store, transport, DefaultHost, logger), Log: logger}
+	service := &Service{
+		Store: store, Renewer: NewRenewer(store, transport, DefaultHost, logger), Log: logger,
+		Client: &http.Client{Transport: transport}, BaseURL: "https://" + DefaultHost,
+	}
 
 	cert, pool := selfSignedCert(t, DefaultHost)
 	proxy := &proxykit.Proxy{
@@ -255,8 +261,8 @@ func TestLoginIsCapturedAndPersisted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != stateFileMode {
-		t.Errorf("state file mode = %v, want %v", info.Mode().Perm(), os.FileMode(stateFileMode))
+	if info.Mode().Perm() != fileutil.PrivateFileMode {
+		t.Errorf("state file mode = %v, want %v", info.Mode().Perm(), fileutil.PrivateFileMode)
 	}
 	reloaded, err := NewStore(h.path)
 	if err != nil {
@@ -431,10 +437,10 @@ func TestAPIAccessAndRenew(t *testing.T) {
 	h := newHarness(t)
 	session := h.login(t)
 	const secret = "s3cret"
-	api := h.service.Handler(secret)
+	api := access.Gate{Secret: func() string { return secret }}.Wrap(h.service.Handler())
 
 	get := func(target, remote, auth string) *httptest.ResponseRecorder {
-		req := httptest.NewRequest(http.MethodGet, target, nil)
+		req := httptest.NewRequest(http.MethodGet, "http://localhost"+target, nil)
 		req.RemoteAddr = remote
 		if auth != "" {
 			req.Header.Set("Authorization", auth)
@@ -466,6 +472,76 @@ func TestAPIAccessAndRenew(t *testing.T) {
 	if strings.Contains(status, rec.Body.String()) || !strings.Contains(status, `"can_renew": true`) {
 		t.Errorf("status leaks a secret or lacks fields: %s", status)
 	}
+}
+
+func TestVisitorIDIsCapturedFromAppRequests(t *testing.T) {
+	h := newHarness(t)
+	session := h.login(t)
+	cookie := "PHPSESSID=" + session
+	if got := h.service.Store.Snapshot().VisitorID; got != "" {
+		t.Fatalf("visitor id before any request carrying it = %q", got)
+	}
+	// A non-numeric value must never be stored as an id.
+	h.call(t, "/api/message/init?inmate_id=1&visitor_id=abc", cookie, "")
+	if got := h.service.Store.Snapshot().VisitorID; got != "" {
+		t.Errorf("stored a non-numeric visitor id %q", got)
+	}
+	h.call(t, inmatesPath, cookie, url.Values{inmatesVisitorField: {"9000001"}}.Encode())
+	if got := h.service.Store.Snapshot().VisitorID; got != "9000001" {
+		t.Errorf("visitor id from inmates-by-visitor = %q", got)
+	}
+	h.call(t, "/api/message/init?inmate_id=1&visitor_id=9000002", cookie, "")
+	if got := h.service.Status().VisitorID; got != "9000002" {
+		t.Errorf("visitor id from message/init = %q", got)
+	}
+}
+
+func TestCallUsesStoredSessionAndRecovers(t *testing.T) {
+	h := newHarness(t)
+	session := h.login(t)
+	ctx := context.Background()
+	form := http.Header{"Content-Type": {"application/x-www-form-urlencoded"}}
+
+	reply, err := h.service.Call(ctx, http.MethodPost, "/api/echo", form, []byte("a=1"))
+	if err != nil || !strings.Contains(string(reply.Body), `"echo":"a=1"`) {
+		t.Fatalf("call = %v, %s", err, replyBody(reply))
+	}
+	sent, _ := h.fake.lastCookie.Load().(string)
+	if !strings.Contains(sent, "PHPSESSID="+session) || !strings.Contains(sent, "asps="+fakeRemember) {
+		t.Errorf("Cookie sent upstream = %q", sent)
+	}
+
+	// The server forgets every session: Call renews and the caller sees success.
+	h.fake.expireAll()
+	reply, err = h.service.Call(ctx, http.MethodPost, "/api/echo", form, []byte("a=2"))
+	if err != nil || !strings.Contains(string(reply.Body), `"echo":"a=2"`) {
+		t.Fatalf("call after expiry = %v, %s", err, replyBody(reply))
+	}
+	renewed := h.service.Store.Snapshot().PHPSESSID
+	if renewed == session || h.fake.refetches.Load() != 1 {
+		t.Errorf("session %q -> %q with %d refetches, want one renewal", session, renewed, h.fake.refetches.Load())
+	}
+
+	// A permission error is the account's: no renewal, and the reply is passed on.
+	reply, err = h.service.Call(ctx, http.MethodGet, "/api/app/prisons/1", nil, nil)
+	if err != nil || !strings.Contains(string(reply.Body), permissionMsg) || h.fake.refetches.Load() != 1 {
+		t.Errorf("permission call = %v, %s, refetches %d", err, replyBody(reply), h.fake.refetches.Load())
+	}
+}
+
+func TestCallWithoutAnySession(t *testing.T) {
+	h := newHarness(t)
+	if _, err := h.service.Call(context.Background(), http.MethodGet, "/api/echo", nil, nil); !errors.Is(err, ErrNoSession) {
+		t.Errorf("err = %v, want ErrNoSession", err)
+	}
+}
+
+// replyBody renders a possibly nil reply for failure messages.
+func replyBody(reply *Reply) string {
+	if reply == nil {
+		return "<nil>"
+	}
+	return string(reply.Body)
 }
 
 func TestReplaceCookie(t *testing.T) {

@@ -1,83 +1,61 @@
-// Command hwclient runs the session-keeping proxy for the HomeWAV app.
+// Command hwclient runs the session-keeping proxy for the HomeWAV app and
+// the web UI on top of it, without a tray icon. Use it on a server or when
+// you want the logs in a terminal.
 //
-// Point the phone at http://<this-box>:<port>/proxy.pac (Wi-Fi > Configure
-// Proxy > Automatic), trust the CA that signed -cert, and open the app once.
-// Afterwards `curl localhost:8080/_/sessid` prints a working session.
+// Open http://localhost:8080 for the UI. Its Settings page walks through the
+// phone setup: trust the CA, set the PAC URL, open the app once.
 package main
 
 import (
 	"context"
-	"crypto/tls"
-	"errors"
 	"flag"
-	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
+	"hwclient/app"
 	"hwclient/server"
 	"hwclient/session"
 )
 
-// secretEnv lets the API secret stay out of the process list.
+// secretEnv lets the pairing secret stay out of the process list.
 const secretEnv = "HWCLIENT_API_SECRET"
 
-// defaultKeepAlive refreshes well inside the remember cookies' 30-day window.
-const defaultKeepAlive = 12 * time.Hour
-
 func main() {
-	listen := flag.String("listen", server.DefaultListen, "plaintext address for the PAC, CONNECT and /_/ endpoints")
-	httpsListen := flag.String("https-listen", "", "optional direct-HTTPS address (hosts-file/DNS-override setups)")
-	certPath := flag.String("cert", "", "PEM certificate for the intercepted host (required)")
-	keyPath := flag.String("key", "", "PEM private key for -cert (required)")
-	statePath := flag.String("state", "", "JSON file that keeps credentials across restarts (recommended)")
-	pacAddr := flag.String("pac-addr", "", `"host:port" written into the PAC (default: the Host the phone used)`)
-	host := flag.String("host", session.DefaultHost, "API host to intercept")
-	keepAlive := flag.Duration("keepalive", defaultKeepAlive, "renew the session this often even when the app is idle (0 disables)")
+	options := app.Options{}
+	flag.StringVar(&options.Listen, "listen", server.DefaultListen, "address for the proxy, the web UI and the local API")
+	flag.StringVar(&options.HTTPSListen, "https-listen", "", "optional direct-HTTPS address (hosts-file/DNS-override setups)")
+	flag.StringVar(&options.DataDir, "data", "", "folder for settings, credentials and certificates (default: the user config directory)")
+	flag.StringVar(&options.CertPath, "cert", "", "use this PEM certificate instead of the managed CA (needs -key)")
+	flag.StringVar(&options.KeyPath, "key", "", "PEM private key for -cert")
+	flag.StringVar(&options.StatePath, "state", "", "credentials file (default: state.json in the data folder)")
+	flag.StringVar(&options.PACAddr, "pac-addr", "", `"host:port" written into the PAC (default: the Host the phone used)`)
+	flag.StringVar(&options.Host, "host", session.DefaultHost, "API host to intercept")
+	flag.DurationVar(&options.KeepAlive, "keepalive", app.DefaultKeepAlive, "renew the session this often even when the app is idle (0 disables)")
+	flag.BoolVar(&options.OpenProxy, "open-proxy", false, "also tunnel hosts that are not intercepted (exposes this machine's loopback to the LAN)")
 	noAccessLog := flag.Bool("no-access-log", false, "disable per-request access logs")
 	flag.Parse()
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	if err := run(logger, *certPath, *keyPath, server.Config{
-		Listen:      *listen,
-		HTTPSListen: *httpsListen,
-		StatePath:   *statePath,
-		PACAddr:     *pacAddr,
-		APISecret:   os.Getenv(secretEnv),
-		Host:        *host,
-		KeepAlive:   *keepAlive,
-		AccessLog:   !*noAccessLog,
-		Logger:      logger,
-	}); err != nil {
+	options.AccessLog = !*noAccessLog
+	options.SecretOverride = os.Getenv(secretEnv)
+	options.Logger = logger
+
+	instance, err := app.New(options)
+	if err != nil {
 		logger.Error("fatal", "err", err)
 		os.Exit(1)
 	}
-}
-
-// run loads the certificate, then serves until SIGINT/SIGTERM.
-func run(logger *slog.Logger, certPath, keyPath string, cfg server.Config) error {
-	if certPath == "" || keyPath == "" {
-		return errors.New("-cert and -key are required")
-	}
-	cert, err := tls.LoadX509KeyPair(certPath, keyPath)
-	if err != nil {
-		return fmt.Errorf("loading cert: %w", err)
-	}
-	cfg.Certificate = cert
-	if cfg.StatePath == "" {
-		logger.Warn("no -state file: credentials are lost on restart")
-	}
-	if cfg.APISecret == "" {
-		logger.Info("/_/ endpoints are loopback-only; set " + secretEnv + " to allow other devices")
-	}
-
-	srv, err := server.New(cfg)
-	if err != nil {
-		return err
-	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	return srv.Run(ctx)
+	go func() {
+		if url, err := instance.URL(); err == nil {
+			logger.Info("web UI ready", "url", url)
+		}
+	}()
+	if err := instance.Run(ctx); err != nil {
+		logger.Error("fatal", "err", err)
+		os.Exit(1)
+	}
 }

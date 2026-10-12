@@ -18,6 +18,10 @@ type Service struct {
 	Store   *Store
 	Renewer *Renewer
 	Log     *slog.Logger
+	// Client and BaseURL ("https://host") are used by Call. Leave them zero if
+	// only the hook and the credential endpoints are needed.
+	Client  *http.Client
+	BaseURL string
 }
 
 // Hook is the proxykit hook for the API host. For JSON API calls it:
