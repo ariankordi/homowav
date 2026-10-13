@@ -11,7 +11,7 @@
 #   ca.pem / ca.key      -> install ca.pem on the phone (AirDrop/mail it, install the
 #                           profile, then enable it under Settings > General > About >
 #                           Certificate Trust Settings). Keep ca.key private.
-#   leaf.pem / leaf.key  -> pass to homowav as -cert / -key.
+#   leaf.pem / leaf.key  -> pass to hwclient as -cert / -key.
 set -euo pipefail
 
 if [[ $# -lt 2 ]]; then
@@ -42,7 +42,7 @@ if [[ ! -f ca.pem || ! -f ca.key ]]; then
 	# basicConstraints CA:TRUE is required or iOS will not accept it as an issuer.
 	openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes \
 		-keyout ca.key -out ca.pem -days "$CA_VALID_DAYS" \
-		-subj "/CN=homowav private CA" \
+		-subj "/CN=hwclient private CA" \
 		-addext "basicConstraints=critical,CA:TRUE" \
 		-addext "keyUsage=critical,keyCertSign,cRLSign"
 fi

@@ -9,3 +9,7 @@ state.json
 *.state.json
 # Throwaway scratch output.
 /scratch/
+# Web UI build output and dependencies. The .gitkeep keeps go:embed compiling.
+/web/node_modules/
+/web/dist/*
+!/web/dist/.gitkeep

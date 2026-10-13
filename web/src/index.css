@@ -1,0 +1,48 @@
+@import "tailwindcss";
+
+/*
+ * Color tokens. Components only use these names, so the palette and the dark
+ * theme live in one place.
+ */
+@theme {
+	--color-page: #f4f5f7;
+	--color-panel: #ffffff;
+	--color-line: #e2e5ea;
+	--color-ink: #1b1f27;
+	--color-muted: #68707d;
+	--color-accent: #2f6fed;
+	--color-accent-ink: #ffffff;
+	--color-bubble: #e9ecf1;
+	--color-good: #1f9d55;
+	--color-warn: #b7791f;
+	--color-bad: #d64545;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root {
+		--color-page: #101216;
+		--color-panel: #191c22;
+		--color-line: #2a2f38;
+		--color-ink: #e8eaee;
+		--color-muted: #949cab;
+		--color-accent: #5b8cff;
+		--color-accent-ink: #0b1020;
+		--color-bubble: #262b34;
+		--color-good: #4cc38a;
+		--color-warn: #e0b252;
+		--color-bad: #f07178;
+	}
+}
+
+html,
+body,
+#app {
+	height: 100%;
+}
+
+body {
+	background: var(--color-page);
+	color: var(--color-ink);
+	font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+	-webkit-text-size-adjust: 100%;
+}
