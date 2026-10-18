@@ -1,7 +1,7 @@
 /** @file All network access of the UI: the local settings API and the service API. */
 
-import { ApiBase, ClientHeader, ThreadPageSize, VoiceContentType } from "./constants";
-import type { AppConfig, AppStatus, Contact, Message, MessageInit, OutgoingMessage } from "./types";
+import { ApiBase, ClientHeader, MsPerSecond, ThreadPageSize, VoiceContentType } from "./constants";
+import type { AppConfig, AppStatus, Contact, Heartbeat, Message, MessageInit, OutgoingMessage } from "./types";
 
 /** The {ok, cause, body} wrapper both the service and the Go side use. */
 interface Envelope<T> {
@@ -109,6 +109,16 @@ export class LocalApi {
 	}
 }
 
+/**
+ * Gives a just-sent message the timestamp thread entries carry. The send reply
+ * only has "created" in the facility's local time, with no zone to read it in,
+ * and the message was created a moment ago anyway.
+ */
+const withTimestamp = (message: Message): Message =>
+	typeof message.created_timestamp === "number"
+		? message
+		: { ...message, created_timestamp: Math.floor(Date.now() / MsPerSecond) };
+
 /** The parts of the service API the UI uses. Shapes follow captures of the app. */
 export class ServiceApi {
 	static contacts(visitorId: string): Promise<Contact[]> {
@@ -116,6 +126,11 @@ export class ServiceApi {
 			method: "POST",
 			body: new URLSearchParams({ id: visitorId }),
 		});
+	}
+
+	/** Presence and unread count, cheaper than reloading a thread. */
+	static heartbeat(): Promise<Heartbeat> {
+		return service<Heartbeat>("/api/visitor/heartbeat?ctx=mobile");
 	}
 
 	static thread(inmateId: string, page: number): Promise<Message[]> {
@@ -145,7 +160,7 @@ export class ServiceApi {
 			form.set("sender", "visitor");
 			form.set("body", "");
 			form.set("voice", new File([outgoing.voice], outgoing.voice.name, { type: VoiceContentType }));
-			return service<Message>("/api/message/send", { method: "POST", body: form });
+			return withTimestamp(await service<Message>("/api/message/send", { method: "POST", body: form }));
 		}
 		const fields = new URLSearchParams({
 			body: outgoing.body,
@@ -157,6 +172,6 @@ export class ServiceApi {
 			type: outgoing.type,
 			visitor_id: visitorId,
 		});
-		return service<Message>("/api/message/send", { method: "POST", body: fields });
+		return withTimestamp(await service<Message>("/api/message/send", { method: "POST", body: fields }));
 	}
 }

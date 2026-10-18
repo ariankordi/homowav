@@ -1,7 +1,6 @@
 /** @file Small helpers with no state. */
 
-/** Milliseconds per second, for converting the service's unix timestamps. */
-const MsPerSecond = 1000;
+import { MsPerSecond } from "./constants";
 
 /** Extensions shown as a picture even when the service calls the message a video. */
 const ImageExtensions = [".png", ".jpg", ".jpeg", ".gif", ".webp"];

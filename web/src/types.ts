@@ -91,11 +91,28 @@ export interface Message {
 	type: MessageType;
 	status: string;
 	created: string;
+	/**
+	 * Unix seconds. Thread entries have it; the reply to a send does not
+	 * (api.ts fills it in), so code reading a Message can rely on it.
+	 */
 	created_timestamp: number;
 	sender_name?: string;
 	/** A URL for media, false otherwise. */
 	stream_url?: string | false | null;
 	image_url?: string | null;
+}
+
+/**
+ * Reply of GET /api/visitor/heartbeat (the app polls it with ctx=mobile).
+ * Maps are keyed by contact id.
+ */
+export interface Heartbeat {
+	/** "green" when the contact is online, "red" otherwise. */
+	status: Record<string, string>;
+	is_occupant_suspended?: Record<string, boolean>;
+	/** Count of unread messages from contacts, as a string. */
+	unread_messages_count: string;
+	credit_balances?: Record<string, string>;
 }
 
 /** Reply of /api/message/init. */

@@ -32,6 +32,11 @@ const (
 	// textPrice and mediaPrice are the fake per-message prices.
 	textPrice  = "0.25"
 	mediaPrice = "0.50"
+	// onlineColor and offlineColor are the heartbeat's presence values.
+	onlineColor  = "green"
+	offlineColor = "red"
+	// readStatus marks a message the recipient has seen.
+	readStatus = "read"
 	// tinyGIF is a 1x1 image, so media bubbles have something to show.
 	tinyGIF = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
 )
@@ -65,6 +70,13 @@ type Server struct {
 	pubids   map[string]bool
 	nextID   int
 
+	// AutoReply, when set, makes the contact answer each text after this
+	// long, so the UI's check for new messages has something to find.
+	AutoReply time.Duration
+	// SingleContact leaves only the first contact on the account, the
+	// common case the UI opens straight into.
+	SingleContact bool
+
 	// Voice records the last uploaded voice part, for assertions.
 	Voice struct {
 		ContentType string
@@ -77,7 +89,7 @@ func New() *Server {
 	server := &Server{sessions: map[string]bool{}, pubids: map[string]bool{}, nextID: 1000}
 	base := time.Now().Add(-48 * time.Hour)
 	seed := []Message{
-		{Sender: "inmate", Type: "text", Body: "Hey, did you get my letter?", Status: "read"},
+		{Sender: "inmate", Type: "text", Body: "Hey, did you get my letter?", Status: readStatus},
 		{Sender: "visitor", Type: "text", Body: "Yes! Reading it tonight.", Status: "read"},
 		{Sender: "visitor", Type: "gif", ImageURL: tinyGIF, Status: "read"},
 		{Sender: "inmate", Type: "voice", StreamURL: "https://media.invalid/voice.aac", Status: "read"},
@@ -181,6 +193,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.chat(w, r)
 	case "/api/message/send":
 		s.send(w, r)
+	case "/api/visitor/heartbeat":
+		s.heartbeat(w)
 	default:
 		fail(w, "Invalid request")
 	}
@@ -215,10 +229,14 @@ func (s *Server) inmates(w http.ResponseWriter, r *http.Request) {
 			"messaging_enabled": map[string]bool{"video": true, "library": true, "image": true, "gif": gif, "text": true, "voice": true},
 		}
 	}
-	ok(w, []any{
+	contacts := []any{
 		contact("1000001", "Alex", "Example", "160", true),
 		contact("1000002", "Jordan", "Sample", "300", false),
-	})
+	}
+	if s.SingleContact {
+		contacts = contacts[:1]
+	}
+	ok(w, contacts)
 }
 
 func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
@@ -320,5 +338,58 @@ func (s *Server) send(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	stored := s.appendLocked(message, time.Now())
 	s.mu.Unlock()
-	ok(w, stored)
+	if s.AutoReply > 0 && message.Type == "text" {
+		time.AfterFunc(s.AutoReply, func() { s.reply(message.InmateID, "Got it: "+message.Body) })
+	}
+	ok(w, sendReply(stored))
+}
+
+// sendReply is the shape the real service answers a send with: the stored
+// message without created_timestamp (only "created", in the facility's local
+// time), plus a summary of the chat.
+func sendReply(stored Message) map[string]any {
+	encoded, _ := json.Marshal(stored)
+	var reply map[string]any
+	json.Unmarshal(encoded, &reply)
+	delete(reply, "created_timestamp")
+	reply["chat"] = map[string]any{"chatId": stored.InmateID, "isOccupantOnline": isOnline(stored.InmateID), "isVisitorOnline": true}
+	return reply
+}
+
+// reply stores a message from a contact, as if they had answered.
+func (s *Server) reply(inmateID, body string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.appendLocked(Message{InmateID: inmateID, Sender: "inmate", Type: "text", Body: body, Status: "approved"}, time.Now())
+}
+
+// isOnline makes the first contact online and everyone else offline.
+func isOnline(inmateID string) bool { return inmateID == "1000001" }
+
+// heartbeat answers the visitor app's presence poll: who is online, the
+// unread count (a string, as on the real service) and balances.
+func (s *Server) heartbeat(w http.ResponseWriter) {
+	s.mu.Lock()
+	unread := 0
+	for _, message := range s.messages {
+		if message.Sender == "inmate" && message.Status != readStatus {
+			unread++
+		}
+	}
+	s.mu.Unlock()
+	status, suspended, balances := map[string]string{}, map[string]bool{}, map[string]string{}
+	for _, id := range []string{"1000001", "1000002"} {
+		status[id] = offlineColor
+		if isOnline(id) {
+			status[id] = onlineColor
+		}
+		suspended[id] = false
+		balances[id] = "12.50"
+	}
+	ok(w, map[string]any{
+		"status": status, "is_occupant_suspended": suspended, "calls": []any{},
+		"forceLogout": false, "forceLogoutRemainingSeconds": -1,
+		"unread_messages_count": strconv.Itoa(unread), "credit_balances": balances,
+		"is_disapproved": false, "disapproval_reason": []any{}, "is_fraud": false,
+	})
 }

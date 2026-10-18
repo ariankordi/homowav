@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"time"
 
 	"hwclient/internal/app"
 	"hwclient/internal/fakehw"
@@ -24,21 +25,25 @@ import (
 // devListen differs from the real default, so both can run side by side.
 const devListen = "127.0.0.1:8090"
 
+// devAutoReply is how long the fake contact takes to answer a text.
+const devAutoReply = 4 * time.Second
+
 // stateFile matches the name package app uses inside the data folder.
 const stateFile = "state.json"
 
 func main() {
 	listen := flag.String("listen", devListen, "address for the UI and the local API")
 	dataDir := flag.String("data", "", "folder for the throwaway settings and certificates (required)")
+	oneContact := flag.Bool("one-contact", false, "give the fake account a single contact")
 	flag.Parse()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	if err := run(logger, *listen, *dataDir); err != nil {
+	if err := run(logger, *listen, *dataDir, *oneContact); err != nil {
 		logger.Error("fatal", "err", err)
 		os.Exit(1)
 	}
 }
 
-func run(logger *slog.Logger, listen, dataDir string) error {
+func run(logger *slog.Logger, listen, dataDir string, oneContact bool) error {
 	if dataDir == "" {
 		return errors.New("-data is required, for example -data scratch/dev-data")
 	}
@@ -47,6 +52,9 @@ func run(logger *slog.Logger, listen, dataDir string) error {
 	}
 	fake, transport, stop := fakehw.Start()
 	defer stop()
+	// Set before anything can call the fake: the fields are not locked.
+	fake.AutoReply = devAutoReply
+	fake.SingleContact = oneContact
 	// Always start from a fresh fake session: the fake forgets them on exit.
 	if err := os.WriteFile(filepath.Join(dataDir, stateFile), fake.SeedState(), 0o600); err != nil && !errors.Is(err, fs.ErrExist) {
 		return err
