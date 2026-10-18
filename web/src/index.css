@@ -13,6 +13,8 @@
 	--color-accent: #2f6fed;
 	--color-accent-ink: #ffffff;
 	--color-bubble: #e9ecf1;
+	/* Their messages: white on the gray page, like the official app. */
+	--color-theirs: #ffffff;
 	--color-good: #1f9d55;
 	--color-warn: #b7791f;
 	--color-bad: #d64545;
@@ -25,9 +27,14 @@
 		--color-line: #2a2f38;
 		--color-ink: #e8eaee;
 		--color-muted: #949cab;
-		--color-accent: #5b8cff;
-		--color-accent-ink: #0b1020;
+		/*
+		 * The same blue as the light theme: white text on it stays readable
+		 * (4.6:1), as in iMessage. A lighter blue would need dark text.
+		 */
+		--color-accent: #2f6fed;
+		--color-accent-ink: #ffffff;
 		--color-bubble: #262b34;
+		--color-theirs: #262b34;
 		--color-good: #4cc38a;
 		--color-warn: #e0b252;
 		--color-bad: #f07178;

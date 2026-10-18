@@ -22,9 +22,26 @@ export function requireElementById(id: string): HTMLElement {
 /** Joins class names, skipping the falsy ones. */
 export const classes = (...names: (string | false | null | undefined)[]): string => names.filter(Boolean).join(" ");
 
-/** Formats a unix timestamp (seconds) as a short local date and time. */
-export const formatTimestamp = (seconds: number): string =>
-	new Date(seconds * MsPerSecond).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+/** Formats a unix timestamp (seconds) as a local time of day, e.g. "9:24 PM". */
+export const formatTime = (seconds: number): string =>
+	new Date(seconds * MsPerSecond).toLocaleTimeString(undefined, { timeStyle: "short" });
+
+/** A key that is equal for timestamps on the same local calendar day. */
+export const dayKey = (seconds: number): string => new Date(seconds * MsPerSecond).toDateString();
+
+/** Names a local calendar day: "Today", "Yesterday", or a date. */
+export function formatDay(seconds: number): string {
+	const day = new Date(seconds * MsPerSecond);
+	const today = new Date();
+	const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1);
+	if (day.toDateString() === today.toDateString()) {
+		return "Today";
+	}
+	if (day.toDateString() === yesterday.toDateString()) {
+		return "Yesterday";
+	}
+	return day.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" });
+}
 
 /** Formats an ISO time for the status display; "not recorded" when absent. */
 export const formatIsoTime = (value: string | undefined): string =>

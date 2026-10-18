@@ -7,7 +7,7 @@ import { FollowThresholdPx, ThreadPageSize } from "../constants";
 import { ChatHash } from "../route";
 import type { Contact, Message, OutgoingMessage } from "../types";
 import { Composer } from "./Composer";
-import { MessageBubble } from "./MessageBubble";
+import { MessageList } from "./MessageBubble";
 import { Button, Notice } from "./ui";
 
 /** The newest page of a thread; older ones are fetched on request. */
@@ -184,11 +184,7 @@ export function Thread({ contact, visitorId, mediaConfigured, online, balance, r
 				)}
 				{!loaded && !error && <Notice tone="info">Loading messages…</Notice>}
 				{loaded && messages.length === 0 && <Notice tone="info">No messages yet.</Notice>}
-				<ul class="space-y-2">
-					{messages.map((message) => (
-						<MessageBubble key={message.id} message={message} />
-					))}
-				</ul>
+				<MessageList messages={messages} contactName={contact.full_name} contactOnline={online} />
 				{error && (
 					<div class="mt-3">
 						<Notice tone="bad">{error}</Notice>

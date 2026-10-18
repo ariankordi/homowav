@@ -127,3 +127,36 @@ export function CopyRow({ value }: CopyRowProps) {
 		</div>
 	);
 }
+
+/** First letters of a name, for the avatar circle. */
+const initials = (name: string): string =>
+	name
+		.split(/\s+/)
+		.filter(Boolean)
+		.slice(0, 2)
+		.map((word) => word[0].toUpperCase())
+		.join("");
+
+interface AvatarProps {
+	name: string;
+	/** Whether the person is online; undefined hides the dot. */
+	online: boolean | undefined;
+}
+
+/**
+ * A contact's initials in a circle, with a presence dot: filled when online,
+ * hollow when offline, absent when unknown.
+ */
+export function Avatar({ name, online }: AvatarProps) {
+	return (
+		<span class="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent text-sm font-semibold text-accent-ink">
+			{initials(name)}
+			{online !== undefined && (
+				<span
+					title={online ? "Online" : "Offline"}
+					class={classes("absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-2 border-panel", online ? "bg-good" : "bg-line")}
+				/>
+			)}
+		</span>
+	);
+}
