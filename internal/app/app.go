@@ -31,6 +31,12 @@ import (
 	"hwclient/web"
 )
 
+// Name is what the user sees: the tray, the CA certificate the phone shows
+// when installing it, and logs. The web UI has its own copy (AppName in
+// web/src/constants.ts). Internal names (module, binary, data folder, env
+// vars) stay "hwclient" so a rename does not move anyone's settings.
+const Name = "HW Client"
+
 const (
 	// dataDirName is the folder created under the user's config directory.
 	dataDirName = "hwclient"
@@ -185,6 +191,9 @@ func (a *App) pairingSecret() string {
 	}
 	return a.config.Get().PairingSecret
 }
+
+// DataDir is the folder holding settings, credentials and certificates.
+func (a *App) DataDir() string { return a.options.DataDir }
 
 // Run serves until ctx ends or a listener fails.
 func (a *App) Run(ctx context.Context) error { return a.server.Run(ctx) }

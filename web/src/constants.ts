@@ -1,5 +1,11 @@
 /** @file Fixed values shared across the UI. */
 
+/**
+ * The name users see. The Go side has its own copy (Name in
+ * internal/app/app.go) for the tray and the CA certificate.
+ */
+export const AppName = "HW Client";
+
 /** Base path of the forwarder to the service API (Go: internal/app/forward.go). */
 export const ApiBase = "/hw";
 

@@ -7,6 +7,7 @@ import { Settings } from "./components/Settings";
 import { Thread } from "./components/Thread";
 import { Button, Notice } from "./components/ui";
 import {
+	AppName,
 	CheckIntervalKey,
 	CheckIntervals,
 	ContactsPollMs,
@@ -27,7 +28,7 @@ function PairFirst() {
 		<div class="mx-auto max-w-md p-6 text-center">
 			<h1 class="text-lg font-semibold">This device is not paired yet</h1>
 			<p class="mt-2 text-sm text-muted">
-				On the computer running HW Client, open Settings and scan the code under "Use it from the phone" with this device.
+				On the computer running {AppName}, open Settings and scan the code under "Use it from the phone" with this device.
 			</p>
 		</div>
 	);
@@ -243,7 +244,7 @@ export function App() {
 		// On wide screens the app is a centered column instead of stretching edge to edge.
 		<div class="mx-auto flex h-full w-full max-w-6xl flex-col bg-panel xl:border-x xl:border-line">
 			<header class="flex items-center gap-3 border-b border-line bg-panel px-4 py-2">
-				<span class="font-semibold">HW Client</span>
+				<span class="font-semibold">{AppName}</span>
 				<nav class="ml-auto flex gap-1 text-sm">
 					{navLink(ChatHash, "Chat", route.screen === "chat")}
 					{navLink(SettingsHash, "Settings", route.screen === "settings")}

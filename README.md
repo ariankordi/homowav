@@ -12,7 +12,11 @@ go build -o hwclient ./cmd/hwclient
 ./hwclient
 ```
 
-Open `http://localhost:8080`. **Settings** walks through the phone setup:
+It sits in the menu bar (macOS) or tray (Windows) and opens the UI in the browser. The menu has Open, Show data folder and Quit. Starting it again while it runs just opens the browser. Logs go to `hwclient.log` in the data folder. `-headless` drops the icon and logs to the terminal instead, for servers.
+
+On Windows, build with `-ldflags=-H=windowsgui` so no console window opens. It cross-compiles from a Mac (`GOOS=windows`); the macOS build needs cgo, so it has to be built on a Mac.
+
+The UI is at `http://localhost:8080`. **Settings** walks through the phone setup:
 
 1. **Trust the certificate.** Scan the code (or open the link) in Safari on the phone, install the profile, then switch it on under *Settings > General > About > Certificate Trust Settings*.
 2. **Set the proxy.** *Settings > Wi-Fi > (network) > Configure Proxy > Automatic*, with the PAC URL shown.
@@ -32,7 +36,18 @@ Settings, credentials and the certificate authority live in the data folder (`-d
 | `-state` | Credentials file. Default `state.json` in the data folder. |
 | `-keepalive` | Renewal interval. `0` disables it. |
 | `-open-proxy` | Also tunnel hosts that are not intercepted. Off by default, see "Who can reach it". |
+| `-headless` | No tray icon; log to the terminal. |
+| `-no-browser` | Do not open the browser on start. |
 | `-pac-addr`, `-https-listen`, `-host`, `-no-access-log` | As before. |
+
+### Branding
+
+The user-facing name and icon are kept apart from the internal name `hwclient` (module, binary, data folder, env vars), so renaming does not move anyone's settings. To rebrand, change:
+
+- `Name` in `internal/app/app.go`. Used by the tray, the CA certificate's name (new installs only: an existing CA is kept), and logs.
+- `AppName` in `web/src/constants.ts`. Used by the page title and header.
+- `cmd/hwclient/icon.png`: the tray icon on Windows and Linux. Square; 256 px works well.
+- `cmd/hwclient/icon-template.png`: the macOS menu bar icon. Black on transparent; macOS recolors it.
 
 ## The UI
 

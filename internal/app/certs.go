@@ -37,7 +37,7 @@ const (
 	leafKeyFile  = "leaf.key"
 
 	// caCommonName is what the phone shows for the profile.
-	caCommonName = "hwclient private CA"
+	caCommonName = Name + " private CA"
 	// caLifetime is long because replacing the CA means re-trusting it on the phone.
 	caLifetime = 10 * 365 * 24 * time.Hour
 	// leafLifetime stays under the 398 days Apple platforms accept for a server certificate.
