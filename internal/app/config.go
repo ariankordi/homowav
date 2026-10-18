@@ -1,6 +1,7 @@
-// Package config holds the settings a user changes from the UI, persisted as
+// This file holds the settings a user changes from the UI, persisted as
 // one JSON file in the data directory.
-package config
+
+package app
 
 import (
 	"crypto/rand"
@@ -12,7 +13,7 @@ import (
 	"os"
 	"sync"
 
-	"hwclient/fileutil"
+	"hwclient/internal/session"
 )
 
 // pairingSecretBytes is the size of a generated pairing secret (128 bits).
@@ -51,7 +52,7 @@ func (m Media) Configured() bool {
 
 // Config is the whole settings file.
 type Config struct {
-	// PairingSecret admits other devices on the LAN (see package access).
+	// PairingSecret admits other devices on the LAN (see access.go).
 	PairingSecret string `json:"pairing_secret"`
 	// VisitorID overrides the id captured from the app's traffic.
 	VisitorID string `json:"visitor_id"`
@@ -59,9 +60,9 @@ type Config struct {
 	Media Media `json:"media"`
 }
 
-// Store holds the current Config and persists changes. It is safe for
+// ConfigStore holds the current Config and persists changes. It is safe for
 // concurrent use.
-type Store struct {
+type ConfigStore struct {
 	mu     sync.RWMutex
 	config Config
 	path   string
@@ -69,8 +70,8 @@ type Store struct {
 
 // Load reads path, or starts a new file with a random pairing secret if it
 // does not exist. An empty path keeps the settings in memory only.
-func Load(path string) (*Store, error) {
-	store := &Store{path: path}
+func LoadConfig(path string) (*ConfigStore, error) {
+	store := &ConfigStore{path: path}
 	if path != "" {
 		data, err := os.ReadFile(path)
 		switch {
@@ -97,14 +98,14 @@ func Load(path string) (*Store, error) {
 }
 
 // Get returns a copy of the current settings.
-func (s *Store) Get() Config {
+func (s *ConfigStore) Get() Config {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.config
 }
 
 // Update applies edit to a copy of the settings and persists the result.
-func (s *Store) Update(edit func(c *Config)) error {
+func (s *ConfigStore) Update(edit func(c *Config)) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	next := s.config
@@ -119,7 +120,7 @@ func (s *Store) Update(edit func(c *Config)) error {
 }
 
 // saveLocked writes the file with a private mode: it holds the bucket keys.
-func (s *Store) saveLocked() error {
+func (s *ConfigStore) saveLocked() error {
 	if s.path == "" {
 		return nil
 	}
@@ -127,7 +128,7 @@ func (s *Store) saveLocked() error {
 	if err != nil {
 		return err
 	}
-	return fileutil.WriteAtomic(s.path, append(data, '\n'), fileutil.PrivateFileMode)
+	return session.WriteAtomic(s.path, append(data, '\n'), session.PrivateFileMode)
 }
 
 // NewSecret returns a random hex pairing secret.

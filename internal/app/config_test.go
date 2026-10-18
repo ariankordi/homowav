@@ -1,16 +1,16 @@
-package config
+package app
 
 import (
 	"os"
 	"path/filepath"
 	"testing"
 
-	"hwclient/fileutil"
+	"hwclient/internal/session"
 )
 
 func TestLoadCreatesSecretAndUpdatePersists(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
-	store, err := Load(path)
+	store, err := LoadConfig(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -19,7 +19,7 @@ func TestLoadCreatesSecretAndUpdatePersists(t *testing.T) {
 		t.Fatalf("generated secret %q has the wrong length", secret)
 	}
 	info, err := os.Stat(path)
-	if err != nil || info.Mode().Perm() != fileutil.PrivateFileMode {
+	if err != nil || info.Mode().Perm() != session.PrivateFileMode {
 		t.Fatalf("config file: mode %v, err %v", info.Mode().Perm(), err)
 	}
 	if store.Get().Media.Configured() {
@@ -33,7 +33,7 @@ func TestLoadCreatesSecretAndUpdatePersists(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reloaded, err := Load(path)
+	reloaded, err := LoadConfig(path)
 	if err != nil {
 		t.Fatal(err)
 	}

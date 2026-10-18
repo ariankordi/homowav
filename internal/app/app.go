@@ -1,6 +1,16 @@
 // Package app assembles the whole program: the session proxy, the settings,
 // the certificates, the API base and the web UI. The CLI and the tray command
 // both run it, so they differ only in how they start and stop.
+//
+// Files:
+//   - app.go: options, data directory, routes.
+//   - server.go: the proxy, session hook and listeners.
+//   - api.go: the /app/ settings API used by the web UI.
+//   - forward.go: the /hw/ API base that forwards to the service.
+//   - access.go: who may use the local endpoints (loopback, pairing, CSRF).
+//   - certs.go: the private CA and leaf certificate.
+//   - config.go: settings persisted as config.json.
+//   - media.go, s3.go: uploads to an S3-compatible bucket.
 package app
 
 import (
@@ -17,13 +27,7 @@ import (
 	"strconv"
 	"time"
 
-	"hwclient/access"
-	"hwclient/certs"
-	"hwclient/config"
-	"hwclient/fileutil"
-	"hwclient/server"
-	"hwclient/session"
-	"hwclient/upstream"
+	"hwclient/internal/session"
 	"hwclient/web"
 )
 
@@ -68,7 +72,7 @@ type Options struct {
 	AccessLog bool
 	// SecretOverride replaces the stored pairing secret for this run.
 	SecretOverride string
-	// OpenProxy also serves hosts that are not intercepted (see server.Config).
+	// OpenProxy also serves hosts that are not intercepted (see ServerConfig).
 	OpenProxy bool
 	// Logger receives all logs. Nil discards them.
 	Logger *slog.Logger
@@ -79,11 +83,11 @@ type Options struct {
 // App is a configured, not yet running, instance.
 type App struct {
 	options Options
-	server  *server.Server
-	config  *config.Store
+	server  *Server
+	config  *ConfigStore
 	// certs is nil when an external certificate is used.
-	certs *certs.Manager
-	gate  access.Gate
+	certs *CertManager
+	gate  Gate
 	log   *slog.Logger
 }
 
@@ -111,20 +115,20 @@ func New(options Options) (*App, error) {
 		}
 		options.DataDir = dir
 	}
-	if err := os.MkdirAll(options.DataDir, fileutil.PrivateDirMode); err != nil {
+	if err := os.MkdirAll(options.DataDir, session.PrivateDirMode); err != nil {
 		return nil, fmt.Errorf("app: %w", err)
 	}
 	if options.StatePath == "" {
 		options.StatePath = filepath.Join(options.DataDir, stateFile)
 	}
-	settings, err := config.Load(filepath.Join(options.DataDir, configFile))
+	settings, err := LoadConfig(filepath.Join(options.DataDir, configFile))
 	if err != nil {
 		return nil, err
 	}
 	instance := &App{options: options, config: settings, log: options.Logger}
-	instance.gate = access.Gate{Secret: instance.pairingSecret}
+	instance.gate = Gate{Secret: instance.pairingSecret}
 
-	serverConfig := server.Config{
+	serverConfig := ServerConfig{
 		Listen:      options.Listen,
 		HTTPSListen: options.HTTPSListen,
 		PACAddr:     options.PACAddr,
@@ -147,7 +151,7 @@ func New(options Options) (*App, error) {
 	case options.CertPath != "" || options.KeyPath != "":
 		return nil, errors.New("app: a certificate and its key must be given together")
 	default:
-		manager, err := certs.NewManager(filepath.Join(options.DataDir, certsDir), []string{options.Host})
+		manager, err := NewCertManager(filepath.Join(options.DataDir, certsDir), []string{options.Host})
 		if err != nil {
 			return nil, err
 		}
@@ -155,7 +159,7 @@ func New(options Options) (*App, error) {
 		serverConfig.GetCertificate = manager.GetCertificate
 	}
 
-	instance.server, err = server.New(serverConfig)
+	instance.server, err = NewServer(serverConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -165,12 +169,12 @@ func New(options Options) (*App, error) {
 
 // routes mounts everything next to the PAC and the credential endpoints.
 func (a *App) routes() {
-	forwarder := &upstream.Forwarder{Service: a.server.Service(), Log: a.log}
+	forwarder := &Forwarder{Service: a.server.Service(), Log: a.log}
 	a.server.Handle(apiBase+"/", a.gate.Wrap(http.StripPrefix(apiBase, forwarder)))
 	a.server.Handle("/app/", a.gate.Wrap(a.api()))
 	// Public: the phone fetches these before it can be paired or trusted.
 	a.server.Handle("GET "+caPath, http.HandlerFunc(a.serveCA))
-	a.server.Handle("GET "+access.PairPath, a.gate.PairHandler())
+	a.server.Handle("GET "+PairPath, a.gate.PairHandler())
 	a.server.Handle("/", web.Handler())
 }
 

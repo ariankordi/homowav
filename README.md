@@ -80,21 +80,17 @@ Learned from captures of iOS app 2.28.0.
 
 ## Layout
 
-| Package | Role |
+Go has no `src/` folder by convention. Code under `internal/` cannot be imported by other modules, which is the closest equivalent.
+
+| Path | Role |
 |---|---|
-| `proxykit/` | Generic PAC plus MITM proxy library, copied from the `proxy-tests` demo. Additions: `Flow.Reforward`, `Proxy.ListedOnly`. |
-| `session/` | Credential store, capture, renewal, the proxy hook, `Call` (a request as the logged-in app), the `/_/` API. |
-| `access/` | Who may use the local endpoints. |
-| `certs/` | The managed CA and leaf certificate. |
-| `config/` | The settings file. |
-| `upstream/` | The `/hw/` API base. |
-| `mediastore/` | S3-compatible upload, standard library only. |
-| `server/` | Proxy plus session as one embeddable unit. |
-| `app/` | Assembles everything, serves the UI and its API. |
-| `web/` | The UI: Preact, TypeScript, Tailwind, built with Vite and embedded in the binary. |
-| `cmd/hwclient/` | The program. |
+| `cmd/hwclient/` | The program: tray icon by default, `-headless` for a plain server. |
 | `cmd/hwclient-dev/` | The same program against an in-memory fake of the service, for UI work. |
-| `internal/fakehw/` | That fake. Also used by the tests. |
+| `internal/app/` | Everything specific to this program: the server and listeners, the `/app/` settings API, the `/hw/` API base, the access gate, certificates, settings, media uploads. The package comment in `app.go` lists which file does what. |
+| `internal/session/` | Keeping the account logged in: credential store, capture, renewal, the proxy hook, `Call`, the `/_/` API. |
+| `internal/proxykit/` | Generic PAC plus MITM proxy library, copied from the `proxy-tests` demo. Additions: `Flow.Reforward`, `Proxy.ListedOnly`. |
+| `internal/fakehw/` | The fake service. Also used by the tests. |
+| `web/` | The UI: Preact, TypeScript, Tailwind, built with Vite and embedded in the binary. Sources in `web/src/`. |
 
 ## Working on the UI
 

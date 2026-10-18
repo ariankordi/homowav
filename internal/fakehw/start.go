@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 
-	"hwclient/session"
+	"hwclient/internal/session"
 )
 
 // loopbackHost is left alone by the Transport Start returns, so tests can

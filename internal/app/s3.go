@@ -1,4 +1,4 @@
-package mediastore
+package app
 
 import (
 	"bytes"
@@ -14,8 +14,6 @@ import (
 	"slices"
 	"strings"
 	"time"
-
-	"hwclient/config"
 )
 
 /*
@@ -49,20 +47,20 @@ const (
 
 // S3 uploads to an S3-compatible bucket.
 type S3 struct {
-	media  config.Media
+	media  Media
 	client *http.Client
 	now    func() time.Time
 }
 
-// NewS3 returns a Store for media. transport may be nil for the default.
-func NewS3(media config.Media, transport http.RoundTripper) (*S3, error) {
+// NewS3 returns a MediaStore for media. transport may be nil for the default.
+func NewS3(media Media, transport http.RoundTripper) (*S3, error) {
 	if !media.Configured() {
-		return nil, errors.New("mediastore: bucket, region and both keys are required")
+		return nil, errors.New("media upload: bucket, region and both keys are required")
 	}
 	return &S3{media: media, client: &http.Client{Transport: transport, Timeout: uploadTimeout}, now: time.Now}, nil
 }
 
-// Put implements Store with one PutObject request.
+// Put implements MediaStore with one PutObject request.
 func (s *S3) Put(ctx context.Context, key, contentType string, data []byte) (string, error) {
 	target, err := s.objectURL(key)
 	if err != nil {
@@ -83,12 +81,12 @@ func (s *S3) Put(ctx context.Context, key, contentType string, data []byte) (str
 
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("mediastore: upload: %w", err)
+		return "", fmt.Errorf("media upload: upload: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
 		detail, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBody))
-		return "", fmt.Errorf("mediastore: upload failed: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(detail)))
+		return "", fmt.Errorf("media upload: upload failed: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(detail)))
 	}
 	return s.publicURL(key, target), nil
 }
@@ -101,7 +99,7 @@ func (s *S3) objectURL(key string) (*url.URL, error) {
 	}
 	base, err := url.Parse(endpoint)
 	if err != nil || base.Host == "" {
-		return nil, fmt.Errorf("mediastore: endpoint %q is not a URL", s.media.Endpoint)
+		return nil, fmt.Errorf("media upload: endpoint %q is not a URL", s.media.Endpoint)
 	}
 	target := &url.URL{Scheme: base.Scheme}
 	if s.media.PathStyle {
@@ -133,7 +131,7 @@ func (s *S3) publicURL(key string, uploaded *url.URL) string {
 
 // sign adds SigV4 headers to req. Every header already on req is signed,
 // plus Host and the two x-amz headers set here.
-func sign(req *http.Request, payloadHash string, media config.Media, at time.Time) {
+func sign(req *http.Request, payloadHash string, media Media, at time.Time) {
 	amzDate := at.Format(amzDateLayout)
 	scopeDate := at.Format(scopeDateLayout)
 	req.Header.Set("X-Amz-Date", amzDate)

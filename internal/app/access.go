@@ -1,4 +1,4 @@
-// Package access decides who may use the local endpoints: the credential
+// This file decides who may use the local endpoints: the credential
 // API, the upstream forwarder and the settings API.
 //
 // Three callers are admitted:
@@ -10,7 +10,8 @@
 // Browsers additionally have to prove a request was made by our own page,
 // because a session cookie or a loopback address alone would let any website
 // the user visits send requests here.
-package access
+
+package app
 
 import (
 	"crypto/subtle"

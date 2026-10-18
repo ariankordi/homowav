@@ -1,4 +1,4 @@
-package server
+package app
 
 import (
 	"context"
@@ -10,9 +10,9 @@ import (
 	"time"
 )
 
-func TestNewRequiresCertificate(t *testing.T) {
-	if _, err := New(Config{}); err == nil {
-		t.Fatal("New accepted a config without a certificate")
+func TestNewServerRequiresCertificate(t *testing.T) {
+	if _, err := NewServer(ServerConfig{}); err == nil {
+		t.Fatal("NewServer accepted a config without a certificate")
 	}
 }
 
@@ -22,7 +22,7 @@ func TestRunServesPACAndAPIThenStops(t *testing.T) {
 	cert := testServer.TLS.Certificates[0]
 	testServer.Close()
 
-	srv, err := New(Config{Listen: "127.0.0.1:0", Certificate: cert})
+	srv, err := NewServer(ServerConfig{Listen: "127.0.0.1:0", Certificate: cert})
 	if err != nil {
 		t.Fatal(err)
 	}

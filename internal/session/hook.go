@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"hwclient/proxykit"
+	"hwclient/internal/proxykit"
 )
 
 // maxRecoveries bounds retries per request after the first replay: one with a

@@ -1,5 +1,7 @@
 # Build output.
 /hwclient
+/hwclient.exe
+/homowav
 /bin/
 # Certificates, keys and captured credentials must never be committed.
 /certs/

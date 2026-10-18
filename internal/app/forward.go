@@ -1,11 +1,12 @@
-// Package upstream is the API base the web UI talks to: it forwards requests
+// This file is the API base the web UI talks to: it forwards requests
 // to the HomeWAV API with the captured session attached.
 //
 // The page builds every request itself. This side adds the credentials (which
 // therefore never reach the browser), the headers the app sends, and recovery
 // from a dead session. It is deliberately not a general proxy: only API paths
 // are forwarded, and never the calls that log in or replace the session.
-package upstream
+
+package app
 
 import (
 	"encoding/json"
@@ -18,7 +19,7 @@ import (
 	"strings"
 	"time"
 
-	"hwclient/session"
+	"hwclient/internal/session"
 )
 
 const (

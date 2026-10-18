@@ -1,6 +1,8 @@
-// Package fileutil holds the one file operation every stateful package here
-// needs: replacing a private file without ever leaving it half-written.
-package fileutil
+// WriteAtomic and the private file modes are shared by the session store and
+// by package app (settings, certificates): they replace a private file without
+// ever leaving it half-written.
+
+package session
 
 import (
 	"fmt"

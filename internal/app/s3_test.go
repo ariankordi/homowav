@@ -1,4 +1,4 @@
-package mediastore
+package app
 
 import (
 	"context"
@@ -10,14 +10,12 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"hwclient/config"
 )
 
 // The example credentials and expected signatures below are the published
 // worked examples from the AWS S3 SigV4 documentation:
 // https://docs.aws.amazon.com/AmazonS3/latest/API/sig-v4-header-based-auth.html
-var docMedia = config.Media{
+var docMedia = Media{
 	Region:          "us-east-1",
 	Bucket:          "examplebucket",
 	AccessKeyID:     "AKIAIOSFODNN7EXAMPLE",
@@ -104,20 +102,20 @@ func TestPublicURLDefaults(t *testing.T) {
 	if got := aws.publicURL("hw/x.png", target); got != "https://examplebucket.s3.amazonaws.com/hw/x.png" {
 		t.Errorf("AWS public URL = %q", got)
 	}
-	if _, err := NewS3(config.Media{Bucket: "b"}, nil); err == nil {
+	if _, err := NewS3(Media{Bucket: "b"}, nil); err == nil {
 		t.Error("NewS3 accepted an incomplete configuration")
 	}
 }
 
 func TestNewKey(t *testing.T) {
-	key, err := NewKey("hw/", "Holiday Photo (1).JPEG")
+	key, err := NewMediaKey("hw/", "Holiday Photo (1).JPEG")
 	if err != nil || !strings.HasPrefix(key, "hw/") || !strings.HasSuffix(key, ".jpeg") || strings.Contains(key, "Holiday") {
 		t.Errorf("key = %q, %v", key, err)
 	}
-	if other, _ := NewKey("hw/", "Holiday Photo (1).JPEG"); other == key {
+	if other, _ := NewMediaKey("hw/", "Holiday Photo (1).JPEG"); other == key {
 		t.Error("two keys for the same name collided")
 	}
-	if key, _ := NewKey("", "evil.p/../x"); strings.ContainsAny(key, "/.") {
+	if key, _ := NewMediaKey("", "evil.p/../x"); strings.ContainsAny(key, "/.") {
 		t.Errorf("unsafe extension survived: %q", key)
 	}
 }

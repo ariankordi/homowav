@@ -1,8 +1,8 @@
-// Package server assembles the proxy, the session hook and the local
-// endpoints into one runnable unit. It is what the CLI runs and what a future
-// web UI embeds: construct a Config in code, optionally add routes with
-// Handle, then Run. Package app does exactly that for the full program.
-package server
+// This file assembles the proxy, the session hook and the local endpoints
+// into one runnable unit (Server). App builds one, adds its routes with
+// Handle, then runs it.
+
+package app
 
 import (
 	"context"
@@ -16,9 +16,8 @@ import (
 	"sync"
 	"time"
 
-	"hwclient/access"
-	"hwclient/proxykit"
-	"hwclient/session"
+	"hwclient/internal/proxykit"
+	"hwclient/internal/session"
 )
 
 const (
@@ -33,7 +32,7 @@ const (
 )
 
 // Config describes one server. Only a certificate source is required.
-type Config struct {
+type ServerConfig struct {
 	// Listen is the plaintext address serving the PAC, CONNECT and /_/ endpoints.
 	Listen string
 	// HTTPSListen optionally accepts direct TLS (hosts-file or DNS override setups).
@@ -41,7 +40,7 @@ type Config struct {
 	// Certificate is presented for the intercepted host; the phone must trust its issuer.
 	Certificate tls.Certificate
 	// GetCertificate supplies the certificate instead, for sources that
-	// re-issue it over time (see package certs). It wins over Certificate.
+	// re-issue it over time (see certs.go). It wins over Certificate.
 	GetCertificate func(*tls.ClientHelloInfo) (*tls.Certificate, error)
 	// PACAddr is the "host:port" written into the PAC. Empty uses the Host the phone fetched it with.
 	PACAddr string
@@ -67,7 +66,7 @@ type Config struct {
 
 // Server is a configured, not yet running, hwclient instance.
 type Server struct {
-	cfg     Config
+	cfg     ServerConfig
 	proxy   *proxykit.Proxy
 	service *session.Service
 	local   *http.ServeMux
@@ -77,12 +76,12 @@ type Server struct {
 }
 
 // New validates cfg, loads saved credentials, and wires everything together.
-func New(cfg Config) (*Server, error) {
+func NewServer(cfg ServerConfig) (*Server, error) {
 	if len(cfg.Certificate.Certificate) == 0 && cfg.GetCertificate == nil {
 		return nil, errors.New("server: Config.Certificate or Config.GetCertificate is required")
 	}
 	if cfg.Gate == nil {
-		cfg.Gate = access.Gate{}.Wrap
+		cfg.Gate = Gate{}.Wrap
 	}
 	if cfg.Listen == "" {
 		cfg.Listen = DefaultListen

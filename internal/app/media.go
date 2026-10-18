@@ -1,10 +1,11 @@
-// Package mediastore puts a file somewhere public and returns its URL, so a
+// This file puts a file somewhere public and returns its URL, so a
 // message can point at it.
 //
-// Store is the seam for providers. S3 is the one implementation: it speaks
+// MediaStore is the seam for providers. S3 is the one implementation: it speaks
 // the S3 API, which Amazon S3, Cloudflare R2, Backblaze B2, Wasabi and MinIO
 // all accept, using only the standard library.
-package mediastore
+
+package app
 
 import (
 	"context"
@@ -21,16 +22,16 @@ const (
 	maxExtensionLength = 8
 )
 
-// Store uploads one object and returns the URL a recipient can fetch it from.
-type Store interface {
+// MediaStore uploads one object and returns the URL a recipient can fetch it from.
+type MediaStore interface {
 	// Put stores data under key with the given content type.
 	Put(ctx context.Context, key, contentType string, data []byte) (publicURL string, err error)
 }
 
-// NewKey builds an object key: prefix, a random name, and the extension of
+// NewMediaKey builds an object key: prefix, a random name, and the extension of
 // fileName if it is a plain alphanumeric one. The original name is dropped on
 // purpose, so nothing personal ends up in a public URL.
-func NewKey(prefix, fileName string) (string, error) {
+func NewMediaKey(prefix, fileName string) (string, error) {
 	raw := make([]byte, keyRandomBytes)
 	if _, err := rand.Read(raw); err != nil {
 		return "", err

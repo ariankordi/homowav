@@ -7,18 +7,12 @@ import (
 	"net/http"
 	"strings"
 
-	"hwclient/access"
-	"hwclient/config"
-	"hwclient/mediastore"
-	"hwclient/session"
-	"hwclient/upstream"
+	"hwclient/internal/session"
 )
 
 const (
 	// caPath is the public download of the CA certificate.
 	caPath = "/ca.pem"
-	// pacPath is where the server package serves the PAC.
-	pacPath = "/proxy.pac"
 	// caContentType makes iOS offer to install the file as a profile.
 	caContentType = "application/x-x509-ca-cert"
 	// maxConfigBody caps a settings update.
@@ -49,16 +43,16 @@ type statusReply struct {
 // configReply is the settings as the page may see them: the bucket secret is
 // replaced by a flag, so it cannot be read back out.
 type configReply struct {
-	VisitorID string       `json:"visitor_id"`
-	Media     config.Media `json:"media"`
+	VisitorID string `json:"visitor_id"`
+	Media     Media  `json:"media"`
 	// MediaSecretSet reports a stored secret without revealing it.
 	MediaSecretSet bool `json:"media_secret_set"`
 }
 
 // configUpdate is what the page sends. An empty bucket secret keeps the stored one.
 type configUpdate struct {
-	VisitorID string       `json:"visitor_id"`
-	Media     config.Media `json:"media"`
+	VisitorID string `json:"visitor_id"`
+	Media     Media  `json:"media"`
 }
 
 // api serves the routes under /app/.
@@ -85,7 +79,7 @@ func (a *App) handleStatus(w http.ResponseWriter, _ *http.Request) {
 	}
 	for _, base := range a.lanBases() {
 		reply.PACURLs = append(reply.PACURLs, base+pacPath)
-		reply.PairingURLs = append(reply.PairingURLs, access.PairURL(base, a.pairingSecret()))
+		reply.PairingURLs = append(reply.PairingURLs, PairURL(base, a.pairingSecret()))
 	}
 	if a.certs != nil {
 		reply.CAURL = caPath
@@ -128,7 +122,7 @@ func (a *App) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	trimMedia(&update.Media)
-	err := a.config.Update(func(c *config.Config) {
+	err := a.config.Update(func(c *Config) {
 		if update.Media.SecretAccessKey == "" {
 			update.Media.SecretAccessKey = c.Media.SecretAccessKey
 		}
@@ -142,7 +136,7 @@ func (a *App) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 // trimMedia removes stray whitespace from pasted values.
-func trimMedia(media *config.Media) {
+func trimMedia(media *Media) {
 	for _, field := range []*string{&media.Endpoint, &media.Region, &media.Bucket, &media.AccessKeyID, &media.SecretAccessKey, &media.PublicBaseURL, &media.KeyPrefix, &media.ACL} {
 		*field = strings.TrimSpace(*field)
 	}
@@ -152,12 +146,12 @@ func trimMedia(media *config.Media) {
 // its public URL. The body is the file itself; its name comes in the query.
 func (a *App) handleUpload(w http.ResponseWriter, r *http.Request) {
 	media := a.config.Get().Media
-	store, err := mediastore.NewS3(media, a.options.Transport)
+	store, err := NewS3(media, a.options.Transport)
 	if err != nil {
 		writeError(w, http.StatusConflict, "no media storage is set up yet (see Settings)")
 		return
 	}
-	data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, upstream.MaxRequestBody))
+	data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, MaxRequestBody))
 	if err != nil {
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {
@@ -171,7 +165,7 @@ func (a *App) handleUpload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "the file is empty")
 		return
 	}
-	key, err := mediastore.NewKey(media.KeyPrefix, r.URL.Query().Get(uploadNameParam))
+	key, err := NewMediaKey(media.KeyPrefix, r.URL.Query().Get(uploadNameParam))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

@@ -27,7 +27,7 @@ export interface AppStatus {
 	media_configured: boolean;
 }
 
-/** Upload bucket settings (Go: config.Media). */
+/** Upload bucket settings (Go: app.Media). */
 export interface MediaConfig {
 	endpoint: string;
 	region: string;

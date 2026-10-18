@@ -1,9 +1,9 @@
 /** @file Fixed values shared across the UI. */
 
-/** Base path of the forwarder to the service API (see Go package upstream). */
+/** Base path of the forwarder to the service API (Go: internal/app/forward.go). */
 export const ApiBase = "/hw";
 
-/** Header that proves a request was made by this page (see Go package access). */
+/** Header that proves a request was made by this page (Go: internal/app/access.go). */
 export const ClientHeader = "X-HW-Client";
 
 /** How often the frame refreshes the connection status, in milliseconds. */

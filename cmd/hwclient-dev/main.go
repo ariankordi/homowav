@@ -17,7 +17,7 @@ import (
 	"os/signal"
 	"path/filepath"
 
-	"hwclient/app"
+	"hwclient/internal/app"
 	"hwclient/internal/fakehw"
 )
 

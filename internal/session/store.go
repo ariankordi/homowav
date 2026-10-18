@@ -18,8 +18,6 @@ import (
 	"os"
 	"sync"
 	"time"
-
-	"hwclient/fileutil"
 )
 
 // Creds is everything needed to act as the logged-in app. The zero value
@@ -152,7 +150,7 @@ func (s *Store) saveLocked() error {
 	if err != nil {
 		return err
 	}
-	if err := fileutil.WriteAtomic(s.path, append(data, '\n'), fileutil.PrivateFileMode); err != nil {
+	if err := WriteAtomic(s.path, append(data, '\n'), PrivateFileMode); err != nil {
 		return fmt.Errorf("saving state: %w", err)
 	}
 	return nil

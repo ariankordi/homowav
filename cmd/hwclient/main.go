@@ -14,9 +14,8 @@ import (
 	"os/signal"
 	"syscall"
 
-	"hwclient/app"
-	"hwclient/server"
-	"hwclient/session"
+	"hwclient/internal/app"
+	"hwclient/internal/session"
 )
 
 // secretEnv lets the pairing secret stay out of the process list.
@@ -24,7 +23,7 @@ const secretEnv = "HWCLIENT_API_SECRET"
 
 func main() {
 	options := app.Options{}
-	flag.StringVar(&options.Listen, "listen", server.DefaultListen, "address for the proxy, the web UI and the local API")
+	flag.StringVar(&options.Listen, "listen", app.DefaultListen, "address for the proxy, the web UI and the local API")
 	flag.StringVar(&options.HTTPSListen, "https-listen", "", "optional direct-HTTPS address (hosts-file/DNS-override setups)")
 	flag.StringVar(&options.DataDir, "data", "", "folder for settings, credentials and certificates (default: the user config directory)")
 	flag.StringVar(&options.CertPath, "cert", "", "use this PEM certificate instead of the managed CA (needs -key)")

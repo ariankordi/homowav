@@ -15,7 +15,6 @@ import (
 	"strings"
 	"testing"
 
-	"hwclient/access"
 	"hwclient/internal/fakehw"
 )
 
@@ -62,7 +61,7 @@ func (h *harness) do(t *testing.T, method, path, contentType string, body []byte
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.Header.Set(access.ClientHeader, "1")
+	req.Header.Set(ClientHeader, "1")
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
 	}
@@ -204,7 +203,7 @@ func TestForwarderRefusesAuthAndNonAPIPaths(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		io.WriteString(conn, "POST "+path+" HTTP/1.1\r\nHost: localhost\r\n"+access.ClientHeader+": 1\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+		io.WriteString(conn, "POST "+path+" HTTP/1.1\r\nHost: localhost\r\n"+ClientHeader+": 1\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
 		raw, _ := io.ReadAll(conn)
 		conn.Close()
 		if !strings.HasPrefix(string(raw), "HTTP/1.1 "+want) {
@@ -251,7 +250,7 @@ func TestLANCallersNeedPairing(t *testing.T) {
 			t.Errorf("%s: %d, want 200 for everyone", path, rec.Code)
 		}
 	}
-	paired := request(access.PairURL("", h.app.pairingSecret()), nil)
+	paired := request(PairURL("", h.app.pairingSecret()), nil)
 	cookies := paired.Result().Cookies()
 	if paired.Code != http.StatusSeeOther || len(cookies) != 1 {
 		t.Fatalf("pairing: %d, cookies %v", paired.Code, cookies)

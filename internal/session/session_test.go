@@ -27,9 +27,7 @@ import (
 	"testing"
 	"time"
 
-	"hwclient/access"
-	"hwclient/fileutil"
-	"hwclient/proxykit"
+	"hwclient/internal/proxykit"
 )
 
 // Fixed fake-server values. None of these come from a real capture.
@@ -261,8 +259,8 @@ func TestLoginIsCapturedAndPersisted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != fileutil.PrivateFileMode {
-		t.Errorf("state file mode = %v, want %v", info.Mode().Perm(), fileutil.PrivateFileMode)
+	if info.Mode().Perm() != PrivateFileMode {
+		t.Errorf("state file mode = %v, want %v", info.Mode().Perm(), PrivateFileMode)
 	}
 	reloaded, err := NewStore(h.path)
 	if err != nil {
@@ -436,8 +434,8 @@ func TestRenewalFailureReturnsOriginalReply(t *testing.T) {
 func TestAPIAccessAndRenew(t *testing.T) {
 	h := newHarness(t)
 	session := h.login(t)
-	const secret = "s3cret"
-	api := access.Gate{Secret: func() string { return secret }}.Wrap(h.service.Handler())
+	// Who may call these endpoints is the gate's job (package app, access_test.go).
+	api := h.service.Handler()
 
 	get := func(target, remote, auth string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(http.MethodGet, "http://localhost"+target, nil)
@@ -450,16 +448,10 @@ func TestAPIAccessAndRenew(t *testing.T) {
 		return rec
 	}
 	if rec := get("/_/sessid", "127.0.0.1:5000", ""); rec.Code != http.StatusOK || rec.Body.String() != session {
-		t.Errorf("loopback sessid = %d %q", rec.Code, rec.Body.String())
+		t.Errorf("sessid = %d %q", rec.Code, rec.Body.String())
 	}
-	if rec := get("/_/sessid", "192.168.1.20:5000", ""); rec.Code != http.StatusForbidden {
-		t.Errorf("remote without secret = %d, want 403", rec.Code)
-	}
-	if rec := get("/_/sessid", "192.168.1.20:5000", "Bearer wrong"); rec.Code != http.StatusForbidden {
-		t.Errorf("remote with wrong secret = %d, want 403", rec.Code)
-	}
-	if rec := get("/_/token", "192.168.1.20:5000", "Bearer "+secret); rec.Code != http.StatusOK || !isJWT(rec.Body.String()) {
-		t.Errorf("remote token with secret = %d %q", rec.Code, rec.Body.String())
+	if rec := get("/_/token", "127.0.0.1:5000", ""); rec.Code != http.StatusOK || !isJWT(rec.Body.String()) {
+		t.Errorf("token = %d %q", rec.Code, rec.Body.String())
 	}
 	rec := get("/_/sessid?renew=1", "[::1]:5000", "")
 	if rec.Code != http.StatusOK || rec.Body.String() == session || h.fake.refetches.Load() != 1 {
