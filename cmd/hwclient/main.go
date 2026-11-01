@@ -35,11 +35,15 @@ const (
 	maxLogSize = 5 << 20
 )
 
+// version is stamped by the release build (-ldflags "-X main.version=v1.2.3").
+var version = "dev"
+
 // flags is everything parsed from the command line.
 type flags struct {
-	options   app.Options
-	headless  bool
-	noBrowser bool
+	options     app.Options
+	headless    bool
+	noBrowser   bool
+	showVersion bool
 }
 
 func parseFlags() flags {
@@ -58,6 +62,7 @@ func parseFlags() flags {
 	noAccessLog := flag.Bool("no-access-log", false, "disable per-request access logs")
 	flag.BoolVar(&parsed.headless, "headless", false, "no tray icon; log to the terminal")
 	flag.BoolVar(&parsed.noBrowser, "no-browser", false, "do not open the browser on start (tray mode)")
+	flag.BoolVar(&parsed.showVersion, "version", false, "print the version and exit")
 	flag.Parse()
 	options.AccessLog = !*noAccessLog
 	options.SecretOverride = os.Getenv(secretEnv)
@@ -66,6 +71,10 @@ func parseFlags() flags {
 
 func main() {
 	parsed := parseFlags()
+	if parsed.showVersion {
+		fmt.Println(app.Name, version)
+		return
+	}
 	if parsed.options.DataDir == "" {
 		dir, err := app.DefaultDataDir()
 		if err != nil {
@@ -83,6 +92,7 @@ func main() {
 // runHeadless serves until interrupted, logging to the terminal.
 func runHeadless(options app.Options) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	logger.Info("starting", "version", version)
 	options.Logger = logger
 	instance, err := app.New(options)
 	if err != nil {

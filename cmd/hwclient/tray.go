@@ -34,6 +34,7 @@ func runTray(parsed flags) {
 	}
 	defer closeLog()
 	logger := slog.New(slog.NewTextHandler(writer, nil))
+	logger.Info("starting", "version", version)
 
 	// A second start (double-clicking the app again) just shows the UI.
 	if url, running := runningInstance(parsed.options.Listen); running {
