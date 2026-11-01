@@ -1,7 +1,6 @@
 package app
 
 import (
-	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -13,6 +12,7 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -37,8 +37,15 @@ const (
 	// amzDateLayout and scopeDateLayout are the two timestamp forms SigV4 uses.
 	amzDateLayout   = "20060102T150405Z"
 	scopeDateLayout = "20060102"
-	// uploadTimeout bounds one PutObject.
-	uploadTimeout = 2 * time.Minute
+	// MaxUploadSize is the largest object one PutObject may create in S3, so
+	// it is also the upload limit (multipart uploads would lift it).
+	MaxUploadSize = 5 << 30
+	// stallTimeout ends an upload once no bytes have moved for this long. A
+	// fixed total timeout would cut off large files on slow connections.
+	stallTimeout = 2 * time.Minute
+	// unsignedPayload stands in for the body hash, which a streamed body
+	// cannot provide before it is sent. Providers accept it over HTTPS.
+	unsignedPayload = "UNSIGNED-PAYLOAD"
 	// maxErrorBody caps how much of an error reply is read for the message.
 	maxErrorBody = 4 << 10
 	// unreservedExtra are the non-alphanumeric characters SigV4 leaves unescaped.
@@ -50,6 +57,8 @@ type S3 struct {
 	media  Media
 	client *http.Client
 	now    func() time.Time
+	// stallTimeout is stallTimeout, replaceable in tests.
+	stallTimeout time.Duration
 }
 
 // NewS3 returns a MediaStore for media. transport may be nil for the default.
@@ -57,18 +66,28 @@ func NewS3(media Media, transport http.RoundTripper) (*S3, error) {
 	if !media.Configured() {
 		return nil, errors.New("media upload: bucket, region and both keys are required")
 	}
-	return &S3{media: media, client: &http.Client{Transport: transport, Timeout: uploadTimeout}, now: time.Now}, nil
+	return &S3{media: media, client: &http.Client{Transport: transport}, now: time.Now, stallTimeout: stallTimeout}, nil
 }
 
-// Put implements MediaStore with one PutObject request.
-func (s *S3) Put(ctx context.Context, key, contentType string, data []byte) (string, error) {
+// Put implements MediaStore with one PutObject request. The body is passed
+// through as it is read, so memory use does not grow with the file.
+func (s *S3) Put(ctx context.Context, key, contentType string, body io.Reader, size int64) (string, error) {
 	target, err := s.objectURL(key)
 	if err != nil {
 		return "", err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, target.String(), bytes.NewReader(data))
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	watched := newStallReader(body, s.stallTimeout, cancel)
+	defer watched.stop()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, target.String(), watched)
 	if err != nil {
 		return "", err
+	}
+	// S3 refuses chunked uploads, so the length has to be sent up front.
+	req.ContentLength = size
+	if size == 0 {
+		req.Body = http.NoBody
 	}
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
@@ -76,11 +95,13 @@ func (s *S3) Put(ctx context.Context, key, contentType string, data []byte) (str
 	if s.media.ACL != "" {
 		req.Header.Set("X-Amz-Acl", s.media.ACL)
 	}
-	payloadHash := sha256.Sum256(data)
-	sign(req, hex.EncodeToString(payloadHash[:]), s.media, s.now().UTC())
+	sign(req, unsignedPayload, s.media, s.now().UTC())
 
 	resp, err := s.client.Do(req)
 	if err != nil {
+		if watched.stalled() {
+			return "", fmt.Errorf("media upload: no progress for %v, gave up", s.stallTimeout)
+		}
 		return "", fmt.Errorf("media upload: upload: %w", err)
 	}
 	defer resp.Body.Close()
@@ -207,3 +228,41 @@ func hmacSHA256(key []byte, message string) []byte {
 	mac.Write([]byte(message))
 	return mac.Sum(nil)
 }
+
+// stallReader passes reads through and calls cancel once none has returned
+// data for timeout, without limiting how long a big upload may take overall.
+// Canceling closes the connection, which ends a provider that stopped
+// accepting data. It cannot interrupt a read that is blocked on the source,
+// so the caller bounds those itself (handleUpload sets read deadlines). The
+// transport reads the body from its own goroutine, so the flag is atomic.
+type stallReader struct {
+	source  io.Reader
+	timeout time.Duration
+	timer   *time.Timer
+	fired   atomic.Bool
+}
+
+// newStallReader starts the clock right away: connecting counts too.
+func newStallReader(source io.Reader, timeout time.Duration, cancel context.CancelFunc) *stallReader {
+	reader := &stallReader{source: source, timeout: timeout}
+	reader.timer = time.AfterFunc(timeout, func() {
+		reader.fired.Store(true)
+		cancel()
+	})
+	return reader
+}
+
+// Read implements io.Reader, restarting the clock whenever data arrives.
+func (r *stallReader) Read(buffer []byte) (int, error) {
+	count, err := r.source.Read(buffer)
+	if count > 0 {
+		r.timer.Reset(r.timeout)
+	}
+	return count, err
+}
+
+// stop ends the watch once the request is over.
+func (r *stallReader) stop() { r.timer.Stop() }
+
+// stalled reports whether the watch gave up on the upload.
+func (r *stallReader) stalled() bool { return r.fired.Load() }

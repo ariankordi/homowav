@@ -2,10 +2,11 @@ package app
 
 import (
 	"encoding/json"
-	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"hwclient/internal/session"
 )
@@ -144,6 +145,9 @@ func trimMedia(media *Media) {
 
 // handleUpload stores the request body in the configured bucket and returns
 // its public URL. The body is the file itself; its name comes in the query.
+// It is streamed to the bucket as it arrives, so its size is checked from
+// Content-Length before anything is read. net/http stops the body at that
+// length, so a client cannot send more than it announced.
 func (a *App) handleUpload(w http.ResponseWriter, r *http.Request) {
 	media := a.config.Get().Media
 	store, err := NewS3(media, a.options.Transport)
@@ -151,18 +155,16 @@ func (a *App) handleUpload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "no media storage is set up yet (see Settings)")
 		return
 	}
-	data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, MaxRequestBody))
-	if err != nil {
-		var tooLarge *http.MaxBytesError
-		if errors.As(err, &tooLarge) {
-			writeError(w, http.StatusRequestEntityTooLarge, "the file is too large")
-			return
-		}
-		writeError(w, http.StatusBadRequest, err.Error())
+	switch size := r.ContentLength; {
+	case size < 0:
+		// Browsers always send the length of a file body; S3 needs it up front.
+		writeError(w, http.StatusLengthRequired, "the upload has no Content-Length")
 		return
-	}
-	if len(data) == 0 {
+	case size == 0:
 		writeError(w, http.StatusBadRequest, "the file is empty")
+		return
+	case size > MaxUploadSize:
+		writeError(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("the file is too large (the limit is %d GiB)", MaxUploadSize>>30))
 		return
 	}
 	key, err := NewMediaKey(media.KeyPrefix, r.URL.Query().Get(uploadNameParam))
@@ -170,13 +172,56 @@ func (a *App) handleUpload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	publicURL, err := store.Put(r.Context(), key, r.Header.Get("Content-Type"), data)
+	body := newDeadlineReader(r.Body, http.NewResponseController(w), a.uploadStall)
+	publicURL, err := store.Put(r.Context(), key, r.Header.Get("Content-Type"), body, r.ContentLength)
+	body.finish(err == nil)
 	if err != nil {
 		a.log.Warn("upload failed", "err", err)
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"url": publicURL})
+}
+
+// deadlineReader reads a request body and pushes the connection's read
+// deadline forward before every read. A sender that goes quiet then fails
+// the read after timeout, instead of holding the upload open forever. Only a
+// deadline can do this: canceling the outgoing request does not interrupt a
+// read that is waiting on the browser.
+type deadlineReader struct {
+	source     io.Reader
+	controller *http.ResponseController
+	timeout    time.Duration
+	// unsupported is set when the connection has no deadlines (it then
+	// behaves like a plain reader).
+	unsupported bool
+}
+
+func newDeadlineReader(source io.Reader, controller *http.ResponseController, timeout time.Duration) *deadlineReader {
+	return &deadlineReader{source: source, controller: controller, timeout: timeout}
+}
+
+// Read implements io.Reader.
+func (r *deadlineReader) Read(buffer []byte) (int, error) {
+	if !r.unsupported && r.controller.SetReadDeadline(time.Now().Add(r.timeout)) != nil {
+		r.unsupported = true
+	}
+	return r.source.Read(buffer)
+}
+
+// finish removes the deadline after a complete upload, so it cannot outlive
+// it. After a failed one it expires the deadline instead: net/http drains an
+// unread body before replying, and that must not wait on a stalled sender.
+// The connection is then closed after the reply.
+func (r *deadlineReader) finish(succeeded bool) {
+	if r.unsupported {
+		return
+	}
+	if succeeded {
+		r.controller.SetReadDeadline(time.Time{})
+	} else {
+		r.controller.SetReadDeadline(time.Now())
+	}
 }
 
 // serveCA offers the CA certificate. It is public information, and the phone

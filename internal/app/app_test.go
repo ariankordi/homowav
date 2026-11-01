@@ -1,8 +1,11 @@
 package app
 
 import (
+	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"mime/multipart"
@@ -12,8 +15,10 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"hwclient/internal/fakehw"
 )
@@ -330,5 +335,98 @@ func TestUpload(t *testing.T) {
 	json.Unmarshal(data, &reply)
 	if status != http.StatusOK || string(stored) != "GIF89a" || !strings.HasPrefix(storedPath, "/b/hw/") || !strings.HasSuffix(reply.URL, ".gif") || strings.Contains(reply.URL, "Photo") {
 		t.Errorf("upload: %d %s; stored %q at %q", status, data, stored, storedPath)
+	}
+}
+
+// withBucket points the harness's media settings at a fake S3 that records
+// what it receives.
+func withBucket(t *testing.T, h *harness, handler http.HandlerFunc) {
+	t.Helper()
+	bucket := httptest.NewServer(handler)
+	t.Cleanup(bucket.Close)
+	body := `{"visitor_id":"","media":{"endpoint":"` + bucket.URL + `","path_style":true,"region":"us-east-1","bucket":"b","access_key_id":"id","secret_access_key":"key"}}`
+	if status, data := h.do(t, http.MethodPut, "/app/config", "application/json", []byte(body)); status != http.StatusOK {
+		t.Fatalf("saving storage settings: %d %s", status, data)
+	}
+}
+
+// rawUpload sends an upload over a bare connection, so the Content-Length
+// header can disagree with the body, and returns the reply's status and body.
+// The connection stays open after body is written, like a stalled browser.
+func rawUpload(t *testing.T, h *harness, lengthHeader, body string) (int, string) {
+	t.Helper()
+	address := strings.TrimPrefix(h.base, "http://")
+	conn, err := net.Dial("tcp", address)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(10 * time.Second))
+	request := "POST /app/upload?name=a.bin HTTP/1.1\r\nHost: " + address + "\r\n" + ClientHeader + ": 1\r\n" + lengthHeader + "\r\n" + body
+	if _, err := io.WriteString(conn, request); err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
+	if err != nil {
+		t.Fatalf("reading the reply: %v", err)
+	}
+	defer resp.Body.Close()
+	data, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, string(data)
+}
+
+func TestUploadStreamsLargeFiles(t *testing.T) {
+	h := newHarness(t, true)
+	var storedLength int64
+	var storedHash, payloadHeader string
+	withBucket(t, h, func(_ http.ResponseWriter, r *http.Request) {
+		digest := sha256.New()
+		storedLength, _ = io.Copy(digest, r.Body)
+		storedHash, payloadHeader = hex.EncodeToString(digest.Sum(nil)), r.Header.Get("X-Amz-Content-Sha256")
+	})
+	file := bytes.Repeat([]byte("0123456789abcdef"), 1<<20) // 16 MiB.
+	sum := sha256.Sum256(file)
+	status, data := h.do(t, http.MethodPost, "/app/upload?name=clip.mp4", "video/mp4", file)
+	if status != http.StatusOK || storedLength != int64(len(file)) || storedHash != hex.EncodeToString(sum[:]) || payloadHeader != unsignedPayload {
+		t.Errorf("upload: %d %s; stored %d bytes, hash match %v, payload header %q", status, data, storedLength, storedHash == hex.EncodeToString(sum[:]), payloadHeader)
+	}
+}
+
+func TestUploadChecksLengthBeforeReading(t *testing.T) {
+	h := newHarness(t, true)
+	contacted := false
+	withBucket(t, h, func(http.ResponseWriter, *http.Request) { contacted = true })
+	cases := []struct {
+		name, header string
+		want         int
+	}{
+		{"no length", "Transfer-Encoding: chunked\r\n", http.StatusLengthRequired},
+		{"empty", "Content-Length: 0\r\n", http.StatusBadRequest},
+		{"over the limit", "Content-Length: " + strconv.FormatInt(MaxUploadSize+1, 10) + "\r\n", http.StatusRequestEntityTooLarge},
+	}
+	for _, c := range cases {
+		// No body is sent (an empty one for chunked, which a browser would
+		// end properly): the answer must come from the header alone.
+		body := ""
+		if strings.Contains(c.header, "chunked") {
+			body = "0\r\n\r\n"
+		}
+		if status, reply := rawUpload(t, h, c.header, body); status != c.want {
+			t.Errorf("%s: %d %s, want %d", c.name, status, reply, c.want)
+		}
+	}
+	if contacted {
+		t.Error("the bucket was contacted for a rejected upload")
+	}
+}
+
+func TestUploadEndsWhenTheSenderStalls(t *testing.T) {
+	h := newHarness(t, true)
+	h.app.uploadStall = 100 * time.Millisecond
+	withBucket(t, h, func(_ http.ResponseWriter, r *http.Request) { io.Copy(io.Discard, r.Body) })
+	// Ten bytes are announced, two are sent, then nothing.
+	status, reply := rawUpload(t, h, "Content-Length: 10\r\n", "ab")
+	if status != http.StatusBadGateway {
+		t.Errorf("stalled upload: %d %s, want %d", status, reply, http.StatusBadGateway)
 	}
 }

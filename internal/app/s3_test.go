@@ -52,10 +52,12 @@ func TestSignMatchesAWSPutObjectExample(t *testing.T) {
 }
 
 func TestPutUploadsAndReturnsPublicURL(t *testing.T) {
-	var gotPath, gotType, gotACL, gotAuth, gotBody string
+	var gotPath, gotType, gotACL, gotAuth, gotBody, gotHash string
+	var gotLength int64
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		data, _ := io.ReadAll(r.Body)
 		gotPath, gotType, gotACL, gotAuth, gotBody = r.URL.EscapedPath(), r.Header.Get("Content-Type"), r.Header.Get("X-Amz-Acl"), r.Header.Get("Authorization"), string(data)
+		gotHash, gotLength = r.Header.Get("X-Amz-Content-Sha256"), r.ContentLength
 	}))
 	defer server.Close()
 
@@ -65,12 +67,16 @@ func TestPutUploadsAndReturnsPublicURL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	publicURL, err := store.Put(context.Background(), "hw/a b.gif", "image/gif", []byte("GIF89a"))
+	publicURL, err := store.Put(context.Background(), "hw/a b.gif", "image/gif", strings.NewReader("GIF89a"), 6)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if gotPath != "/examplebucket/hw/a%20b.gif" || gotType != "image/gif" || gotACL != "public-read" || gotBody != "GIF89a" {
 		t.Errorf("upload: path %q type %q acl %q body %q", gotPath, gotType, gotACL, gotBody)
+	}
+	// A streamed body cannot be hashed up front, and S3 refuses chunked PUTs.
+	if gotHash != unsignedPayload || gotLength != 6 {
+		t.Errorf("payload hash %q, Content-Length %d", gotHash, gotLength)
 	}
 	if !strings.Contains(gotAuth, "SignedHeaders=content-type;host;x-amz-acl;x-amz-content-sha256;x-amz-date") {
 		t.Errorf("Authorization = %q", gotAuth)
@@ -88,9 +94,44 @@ func TestPutReportsProviderErrors(t *testing.T) {
 	media := docMedia
 	media.Endpoint, media.PathStyle = server.URL, true
 	store, _ := NewS3(media, nil)
-	if _, err := store.Put(context.Background(), "k", "", nil); err == nil || !strings.Contains(err.Error(), "AccessDenied") {
+	if _, err := store.Put(context.Background(), "k", "", nil, 0); err == nil || !strings.Contains(err.Error(), "AccessDenied") {
 		t.Errorf("err = %v, want the provider's message", err)
 	}
+}
+
+func TestPutGivesUpWhenTheProviderStopsReading(t *testing.T) {
+	release := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		<-release // Never reads the body, so the socket buffers fill up.
+	}))
+	defer server.Close()
+	defer close(release)
+	media := docMedia
+	media.Endpoint, media.PathStyle = server.URL, true
+	store, _ := NewS3(media, nil)
+	store.stallTimeout = 100 * time.Millisecond
+	const size = 256 << 20 // Far more than loopback socket buffers hold.
+	done := make(chan error, 1)
+	go func() {
+		_, err := store.Put(context.Background(), "k", "", io.LimitReader(zeroReader{}, size), size)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "no progress") {
+			t.Errorf("err = %v, want a stall error", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Put did not give up on a provider that stopped reading")
+	}
+}
+
+// zeroReader is an endless source of zero bytes.
+type zeroReader struct{}
+
+func (zeroReader) Read(buffer []byte) (int, error) {
+	clear(buffer)
+	return len(buffer), nil
 }
 
 func TestPublicURLDefaults(t *testing.T) {

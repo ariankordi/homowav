@@ -95,6 +95,9 @@ type App struct {
 	certs *CertManager
 	gate  Gate
 	log   *slog.Logger
+	// uploadStall ends an upload whose sender has gone quiet this long; see
+	// stallTimeout. A field so tests can shorten it.
+	uploadStall time.Duration
 }
 
 // DefaultDataDir is the per-user folder for settings and credentials.
@@ -131,7 +134,7 @@ func New(options Options) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	instance := &App{options: options, config: settings, log: options.Logger}
+	instance := &App{options: options, config: settings, log: options.Logger, uploadStall: stallTimeout}
 	instance.gate = Gate{Secret: instance.pairingSecret}
 
 	serverConfig := ServerConfig{

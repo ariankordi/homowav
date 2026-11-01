@@ -25,8 +25,11 @@ import (
 const (
 	// apiPrefix is the only part of the service that is forwarded.
 	apiPrefix = "/api/"
-	// MaxRequestBody caps an upload (a voice message is a few hundred KiB).
-	MaxRequestBody = 64 << 20
+	// maxForwardBody caps a forwarded request. It is held in memory, because
+	// Call may resend it after recovering the session. The biggest forwarded
+	// body is a voice message (a few MiB of m4a); photos and videos go to the
+	// media bucket instead, and only their URL is forwarded.
+	maxForwardBody = 64 << 20
 	// Headers the iOS app 2.28.0 sends on API calls. The app puts unix
 	// seconds in Date, which is unusual but is what the service sees from it.
 	appVersion       = "2.28.0"
@@ -53,7 +56,7 @@ func (f *Forwarder) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeFailure(w, http.StatusForbidden, "hwclient: this path is not forwarded")
 		return
 	}
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, MaxRequestBody))
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxForwardBody))
 	if err != nil {
 		writeFailure(w, http.StatusRequestEntityTooLarge, "hwclient: request body is too large")
 		return

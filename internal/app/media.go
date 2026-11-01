@@ -11,6 +11,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"io"
 	"path"
 	"strings"
 )
@@ -24,8 +25,9 @@ const (
 
 // MediaStore uploads one object and returns the URL a recipient can fetch it from.
 type MediaStore interface {
-	// Put stores data under key with the given content type.
-	Put(ctx context.Context, key, contentType string, data []byte) (publicURL string, err error)
+	// Put stores exactly size bytes read from body under key, with the given
+	// content type. The body is streamed, never held in memory as a whole.
+	Put(ctx context.Context, key, contentType string, body io.Reader, size int64) (publicURL string, err error)
 }
 
 // NewMediaKey builds an object key: prefix, a random name, and the extension of
