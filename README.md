@@ -14,7 +14,7 @@ go build -o hwclient ./cmd/hwclient
 
 It sits in the menu bar (macOS) or tray (Windows) and opens the UI in the browser. The menu has Open, Show data folder and Quit. Starting it again while it runs just opens the browser. Logs go to `hwclient.log` in the data folder. `-headless` drops the icon and logs to the terminal instead, for servers.
 
-On Windows, build with `-ldflags=-H=windowsgui` so no console window opens. It cross-compiles from a Mac (`GOOS=windows`); the macOS build needs cgo, so it has to be built on a Mac.
+On Windows, build with `-ldflags=-H=windowsgui` so no console window opens. Windows and Linux builds are pure Go and cross-compile from anywhere; the macOS build needs cgo for the menu bar icon (see "Building releases" for building it elsewhere).
 
 The UI is at `http://localhost:8080`. **Settings** walks through the phone setup:
 
@@ -115,6 +115,12 @@ go run ./cmd/hwclient-dev -data scratch/dev-data   # fake service on :8090
 ```
 
 Nothing in dev mode reaches the real service.
+
+## Building releases
+
+`scripts/build-release.sh <target>` builds one download into `dist/`: `windows-x64`, `windows-arm64`, `linux-x86_64`, `linux-aarch64` (pure Go, `CGO_ENABLED=0`) or `macos-universal` (an ad-hoc signed `HW Client.app` in a zip). The macOS build compiles with zig cc against a headers-only SDK, so it also works from Linux; the script downloads zig, the SDK and, on Linux, `rcodesign` into `toolchains/`. The version comes from `git describe`, or `VERSION`; `hwclient -version` prints it.
+
+`.github/workflows/release.yml` runs the tests and builds every target on each push to `main`. Pushing a `v*` tag also creates a draft GitHub release with the downloads, `SHA256SUMS` and `INSTRUCTIONS.md`. It runs locally with [act](https://github.com/nektos/act): `act` (settings in `.actrc`, artifacts in `dist/act-artifacts/`).
 
 ## Not known yet
 

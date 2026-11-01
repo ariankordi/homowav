@@ -1,0 +1,119 @@
+# Tests, builds every release download, and on a v* tag attaches them to a
+# draft GitHub release, which is then written up and published by hand. The
+# build jobs are thin callers of scripts/build-release.sh, which runs the same
+# way on a local machine.
+#
+# Locally with act (https://github.com/nektos/act): plain "act" reads .actrc,
+# runs one job at a time and writes the artifacts to dist/act-artifacts/.
+# The release job only runs for a pushed tag, which act never sees when run
+# from a branch. One target: act -j build --matrix target:linux-x86_64
+name: Release
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  # Kept in step with the toolchain used locally; go.mod only sets the floor.
+  GO_VERSION: "1.27.x"
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Web UI type check
+        working-directory: web
+        run: |
+          node --version
+          npm ci --no-audit --no-fund
+          npm run typecheck
+
+      - name: Go vet and tests
+        run: |
+          go vet ./...
+          go test -race ./...
+
+  build:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [windows-x64, windows-arm64, linux-x86_64, linux-aarch64, macos-universal]
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          # git describe needs the tags to name the version.
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      # zig, its cache, the macOS SDK and rcodesign; only the macOS build
+      # downloads anything. Each is pinned by version in its fetch script, so
+      # the key only needs a bump to start over.
+      - uses: actions/cache@v6.1.0
+        with:
+          path: toolchains
+          key: toolchains-${{ matrix.target }}-v1
+
+      - name: Install host tools
+        run: |
+          if ! command -v zip > /dev/null || ! command -v unzip > /dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq --no-install-recommends zip unzip
+          fi
+
+      - name: Build
+        run: scripts/build-release.sh "${{ matrix.target }}" dist
+
+      # v4 rather than the newest: act's local artifact server speaks only
+      # its protocol, and GitHub serves both.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hwclient-${{ matrix.target }}
+          # The top level only: the macOS work folder is removed, but a
+          # failed run could leave it behind.
+          path: dist/hwclient-*
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [test, build]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      # For INSTRUCTIONS.md, the user-facing instructions that go along with
+      # the downloads.
+      - uses: actions/checkout@v7.0.1
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
+
+      - name: Checksums
+        working-directory: release
+        run: sha256sum -- * > SHA256SUMS
+
+      - name: Draft the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          files=(release/*)
+          if [[ -f INSTRUCTIONS.md ]]; then
+            files+=(INSTRUCTIONS.md)
+          else
+            echo "::warning::INSTRUCTIONS.md is missing, so the release has no instructions attached"
+          fi
+          gh release create "${GITHUB_REF_NAME}" --draft --verify-tag --title "${GITHUB_REF_NAME}" "${files[@]}"

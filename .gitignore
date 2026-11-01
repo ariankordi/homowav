@@ -15,3 +15,6 @@ state.json
 /web/node_modules/
 /web/dist/*
 !/web/dist/.gitkeep
+# Release builds (scripts/build-release.sh) and the toolchains they download.
+/dist/
+/toolchains/

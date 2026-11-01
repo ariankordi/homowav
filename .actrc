@@ -1,0 +1,4 @@
+--concurrent-jobs=1
+--artifact-server-path=dist/act-artifacts
+--rm
+-P ubuntu-24.04=catthehacker/ubuntu:act-24.04
