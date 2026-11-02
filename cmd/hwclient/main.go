@@ -12,6 +12,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -49,7 +50,7 @@ type flags struct {
 func parseFlags() flags {
 	parsed := flags{}
 	options := &parsed.options
-	flag.StringVar(&options.Listen, "listen", app.DefaultListen, "address for the proxy, the web UI and the local API")
+	flag.StringVar(&options.Listen, "listen", "", `address for the proxy, the web UI and the local API (default: the port from Settings, else "`+app.DefaultListen+`")`)
 	flag.StringVar(&options.HTTPSListen, "https-listen", "", "optional direct-HTTPS address (hosts-file/DNS-override setups)")
 	flag.StringVar(&options.DataDir, "data", "", "folder for settings, credentials and certificates (default: the user config directory)")
 	flag.StringVar(&options.CertPath, "cert", "", "use this PEM certificate instead of the managed CA (needs -key)")
@@ -65,6 +66,8 @@ func parseFlags() flags {
 	flag.BoolVar(&parsed.showVersion, "version", false, "print the version and exit")
 	flag.Parse()
 	options.AccessLog = !*noAccessLog
+	// Both launchers relaunch on app.ErrRestart (see restart.go).
+	options.CanRestart = true
 	options.SecretOverride = os.Getenv(secretEnv)
 	return parsed
 }
@@ -105,7 +108,11 @@ func runHeadless(options app.Options) {
 			logger.Info("web UI ready", "url", url)
 		}
 	}()
-	if err := instance.Run(ctx); err != nil {
+	err = instance.Run(ctx)
+	if errors.Is(err, app.ErrRestart) {
+		err = relaunch(nil)
+	}
+	if err != nil {
 		fail(err)
 	}
 }

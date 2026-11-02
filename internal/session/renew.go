@@ -32,7 +32,7 @@ const (
 
 // ErrNoRememberCookies means renewal is impossible until the app has been
 // used through the proxy at least once.
-var ErrNoRememberCookies = errors.New("session: no remember cookies captured yet; open the app once through the proxy")
+var ErrNoRememberCookies = errors.New("session: no remember cookies captured yet; open the app once through the proxy, or sign in under Settings")
 
 // ErrRenewedRecently is returned for a speculative recovery inside the cooldown.
 var ErrRenewedRecently = errors.New("session: renewed too recently to try again for an ambiguous failure")
@@ -44,12 +44,19 @@ type Renewer struct {
 	client  *http.Client
 	baseURL string
 	log     *slog.Logger
+	// Account, when set, lets a failed renewal fall back to signing in with
+	// a saved password (see login.go). Set it before the Renewer is used.
+	Account AccountSource
 
-	mu          sync.Mutex
-	lastFailure time.Time
-	lastErr     error
-	lastSuccess time.Time
-	attempts    atomic.Int64
+	mu sync.Mutex
+	// lastLogin is when a login was last sent, for loginCooldown.
+	lastLogin time.Time
+	// refusedAccount is the accountKey of credentials the service refused.
+	refusedAccount string
+	lastFailure    time.Time
+	lastErr        error
+	lastSuccess    time.Time
+	attempts       atomic.Int64
 }
 
 // NewRenewer sends refetches to https://host through transport, which should
@@ -121,6 +128,17 @@ func (r *Renewer) refetchLocked(ctx context.Context) (string, error) {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), refetchTimeout)
 	defer cancel()
 	session, err := r.refetch(ctx)
+	if err != nil {
+		// The remember cookies are often dead or missing; a saved password
+		// still gets a session.
+		loginSession, tried, loginErr := r.autoLoginLocked(ctx)
+		switch {
+		case tried && loginErr == nil:
+			session, err = loginSession, nil
+		case tried:
+			err = fmt.Errorf("%w; signing in failed too: %w", err, loginErr)
+		}
+	}
 	if err != nil {
 		r.lastFailure, r.lastErr = time.Now(), err
 		r.log.Warn("session renewal failed", "err", err)

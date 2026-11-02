@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net"
 	"net/http"
@@ -36,15 +37,6 @@ func runTray(parsed flags) {
 	logger := slog.New(slog.NewTextHandler(writer, nil))
 	logger.Info("starting", "version", version)
 
-	// A second start (double-clicking the app again) just shows the UI.
-	if url, running := runningInstance(parsed.options.Listen); running {
-		logger.Info("already running; opening the browser", "url", url)
-		if err := openURL(url); err != nil {
-			logger.Error("cannot open the browser", "err", err)
-		}
-		return
-	}
-
 	options := parsed.options
 	options.Logger = logger
 	instance, err := app.New(options)
@@ -53,13 +45,29 @@ func runTray(parsed flags) {
 		fail(err)
 	}
 
+	// A second start (double-clicking the app again) just shows the UI. The
+	// check comes after app.New, which resolves the port saved in settings.
+	if url, running := runningInstance(instance.Listen()); running {
+		logger.Info("already running; opening the browser", "url", url)
+		if err := openURL(url); err != nil {
+			logger.Error("cannot open the browser", "err", err)
+		}
+		return
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	stopped := make(chan struct{})
+	// restarting is only written before stopped is closed, and read after.
+	restarting := false
 	onReady := func() {
 		setupMenu(instance, logger)
 		go func() {
 			defer close(stopped)
-			if err := instance.Run(ctx); err != nil {
+			err := instance.Run(ctx)
+			switch {
+			case errors.Is(err, app.ErrRestart):
+				restarting = true
+			case err != nil:
 				logger.Error("fatal", "err", err)
 			}
 			// Whether it failed or was asked to stop, the icon goes with it.
@@ -85,6 +93,14 @@ func runTray(parsed flags) {
 		}
 	}
 	systray.Run(onReady, onExit)
+	if restarting {
+		// The page that asked for the restart reconnects by itself, so the
+		// new copy does not open another browser tab.
+		closeLog()
+		if err := relaunch([]string{"-no-browser"}); err != nil {
+			fail(err)
+		}
+	}
 }
 
 // setupMenu sets the icon and the menu, and handles clicks until the app quits.
@@ -93,6 +109,7 @@ func setupMenu(instance *app.App, logger *slog.Logger) {
 	systray.SetTooltip(app.Name)
 	open := systray.AddMenuItem("Open "+app.Name, "Open the web UI in the browser")
 	folder := systray.AddMenuItem("Show data folder", "Settings, certificates and the log file")
+	restart := systray.AddMenuItem("Restart", "Stop and start again, for example after changing the port")
 	systray.AddSeparator()
 	quit := systray.AddMenuItem("Quit", "Stop "+app.Name)
 	// Clicking the icon itself opens the UI where the platform allows it (Windows).
@@ -106,6 +123,8 @@ func setupMenu(instance *app.App, logger *slog.Logger) {
 				if err := openPath(instance.DataDir()); err != nil {
 					logger.Error("cannot open the data folder", "err", err)
 				}
+			case <-restart.ClickedCh:
+				instance.RequestRestart()
 			case <-quit.ClickedCh:
 				systray.Quit()
 				return

@@ -13,6 +13,10 @@ export interface SessionStatus {
 	jwt_expired: boolean;
 	renew_attempts: number;
 	visitor_id: string;
+	/** A saved password is ready for automatic sign-ins. */
+	can_login: boolean;
+	/** Why the saved password stopped being used, if it did. */
+	login_refused?: string;
 }
 
 /** Everything the frame needs (Go: app.statusReply). */
@@ -45,6 +49,18 @@ export interface AppConfig {
 	visitor_id: string;
 	media: MediaConfig;
 	media_secret_set: boolean;
+	/** The saved port, 0 when none is saved. */
+	port: number;
+	/** The port this run actually listens on. */
+	listening_port: number;
+	/** Set when -listen on the command line overrides the saved port. */
+	port_from_flag: boolean;
+	/** Whether POST /app/restart works for this copy. */
+	can_restart: boolean;
+	/** The saved login's username, empty when none is saved. */
+	account_username: string;
+	/** Whether a password is saved (it is never sent to the page). */
+	account_password_set: boolean;
 }
 
 /** Which message kinds a facility allows for a contact. */

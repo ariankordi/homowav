@@ -32,6 +32,11 @@ const (
 	// textPrice and mediaPrice are the fake per-message prices.
 	textPrice  = "0.25"
 	mediaPrice = "0.50"
+	// Username and Password are the fake account's login.
+	Username = "sam"
+	Password = "correct horse"
+	// loginRefusedCause is a made-up refusal; the real wording is not known.
+	loginRefusedCause = "Invalid username or password"
 	// PrisonID is the fake facility both contacts are in.
 	PrisonID = "8000001"
 	// onlineColor and offlineColor are the heartbeat's presence values.
@@ -71,6 +76,11 @@ type Server struct {
 	messages []Message
 	pubids   map[string]bool
 	nextID   int
+	// rememberRevoked makes refetch-session refuse the remember cookies, as
+	// the real service does when it logs the account out for good.
+	rememberRevoked bool
+	// logins counts login attempts, right or wrong.
+	logins int
 
 	// AutoReply, when set, makes the contact answer each text after this
 	// long, so the UI's check for new messages has something to find.
@@ -127,6 +137,21 @@ func (s *Server) ExpireAll() {
 }
 
 // Messages returns a copy of everything in the fake's threads.
+// RevokeRemember makes the remember cookies stop working, so only a login
+// with the password gets a new session.
+func (s *Server) RevokeRemember() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.rememberRevoked = true
+}
+
+// Logins reports how many login attempts were made.
+func (s *Server) Logins() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.logins
+}
+
 func (s *Server) Messages() []Message {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -179,6 +204,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.refetch(w, r)
 		return
 	}
+	if r.URL.Path == "/api/app/login/" {
+		s.login(w, r)
+		return
+	}
 	// message/init is the one call the real service answers without a session.
 	if r.URL.Path == "/api/message/init" {
 		s.initMessage(w, r)
@@ -204,15 +233,41 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) refetch(w http.ResponseWriter, r *http.Request) {
-	if cookie, err := r.Cookie("asps"); err != nil || cookie.Value != RememberValue {
-		fail(w, LoggedOutCause)
+// login answers like the real one: the username is in the query, the
+// password in the form, and the session and remember cookies are set.
+func (s *Server) login(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	s.logins++
+	s.mu.Unlock()
+	if r.URL.Query().Get("username") != Username || r.PostFormValue("password") != Password {
+		fail(w, loginRefusedCause)
 		return
 	}
+	// A login issues new remember cookies, which work again.
+	s.mu.Lock()
+	s.rememberRevoked = false
+	s.mu.Unlock()
+	s.setSessionCookies(w)
+	ok(w, map[string]any{"visitor_id": VisitorID, "username": Username, "jwt_access": "", "jwt_refresh": "fake-refresh"})
+}
+
+// setSessionCookies gives the client a new session and fresh remember cookies.
+func (s *Server) setSessionCookies(w http.ResponseWriter) {
 	w.Header().Add("Set-Cookie", SessionCookie+"="+s.Mint()+"; path=/")
 	for _, name := range []string{"asps", "esur"} {
 		w.Header().Add("Set-Cookie", fmt.Sprintf("%s=%s; Max-Age=%d; path=/", name, RememberValue, rememberMaxAge))
 	}
+}
+
+func (s *Server) refetch(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	revoked := s.rememberRevoked
+	s.mu.Unlock()
+	if cookie, err := r.Cookie("asps"); err != nil || cookie.Value != RememberValue || revoked {
+		fail(w, LoggedOutCause)
+		return
+	}
+	s.setSessionCookies(w)
 	ok(w, map[string]any{"is_logged_in": true})
 }
 

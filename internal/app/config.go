@@ -50,6 +50,17 @@ func (m Media) Configured() bool {
 	return m.Bucket != "" && m.AccessKeyID != "" && m.SecretAccessKey != "" && m.Region != ""
 }
 
+// Account is the HomeWAV login, saved only when the user asks. The password
+// is stored as is (the file is private to the user, but not encrypted): it is
+// what lets hwclient sign in again by itself when the remember cookies fail.
+type Account struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+// Saved reports whether both halves are there.
+func (a Account) Saved() bool { return a.Username != "" && a.Password != "" }
+
 // Config is the whole settings file.
 type Config struct {
 	// PairingSecret admits other devices on the LAN (see access.go).
@@ -58,6 +69,24 @@ type Config struct {
 	VisitorID string `json:"visitor_id"`
 	// Media is the upload bucket.
 	Media Media `json:"media"`
+	// Account is the saved login, empty unless the user chose to save it.
+	Account Account `json:"account,omitzero"`
+	// Port is the port to listen on for the proxy, the UI and the local API.
+	// Zero means the port of DefaultListen. The -listen flag overrides it.
+	// It takes effect on the next start, and phones set up for the old port
+	// need the new PAC URL.
+	Port int `json:"port,omitempty"`
+}
+
+const (
+	// MinPort and MaxPort bound a valid Config.Port.
+	MinPort = 1
+	MaxPort = 65535
+)
+
+// ValidPort reports whether port can be stored as Config.Port (zero resets it).
+func ValidPort(port int) bool {
+	return port == 0 || (port >= MinPort && port <= MaxPort)
 }
 
 // ConfigStore holds the current Config and persists changes. It is safe for

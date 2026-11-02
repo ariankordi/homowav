@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"mime/multipart"
 	"net"
@@ -431,6 +432,84 @@ func TestUploadEndsWhenTheSenderStalls(t *testing.T) {
 	}
 }
 
+func TestPortIsSavedForTheNextStart(t *testing.T) {
+	h := newHarness(t, true)
+	putPort := func(body string) (int, configReply) {
+		status, data := h.do(t, http.MethodPut, "/app/port", "application/json", []byte(body))
+		var reply configReply
+		json.Unmarshal(data, &reply)
+		return status, reply
+	}
+	status, reply := putPort(`{"port":8123}`)
+	if status != http.StatusOK || reply.Port != 8123 || !reply.PortFromFlag || reply.ListeningPort == 0 {
+		t.Fatalf("saving a port: %d %+v", status, reply)
+	}
+	// The other settings form does not carry the port and must not reset it.
+	h.do(t, http.MethodPut, "/app/config", "application/json", []byte(`{"visitor_id":"","media":{}}`))
+	if got := h.app.config.Get().Port; got != 8123 {
+		t.Errorf("port after saving other settings = %d", got)
+	}
+	for _, bad := range []string{`{"port":70000}`, `{"port":-1}`, `{"port":"80"}`} {
+		if status, _ := putPort(bad); status != http.StatusBadRequest {
+			t.Errorf("%s: status %d, want 400", bad, status)
+		}
+	}
+	// This harness's launcher cannot relaunch, so the page is told to restart by hand.
+	if status, _ := h.do(t, http.MethodPost, "/app/restart", "", nil); status != http.StatusConflict {
+		t.Errorf("restart without a relaunching launcher: %d", status)
+	}
+}
+
+func TestListenAddressPrecedence(t *testing.T) {
+	cases := []struct {
+		explicit string
+		saved    int
+		want     string
+	}{
+		{"", 0, DefaultListen},
+		{"", 9000, ":9000"},
+		{"127.0.0.1:7000", 9000, "127.0.0.1:7000"},
+	}
+	for _, c := range cases {
+		if got := listenAddress(c.explicit, c.saved); got != c.want {
+			t.Errorf("listenAddress(%q, %d) = %q, want %q", c.explicit, c.saved, got, c.want)
+		}
+	}
+}
+
+func TestRestartEndsRunWithErrRestart(t *testing.T) {
+	_, transport, stop := fakehw.Start()
+	t.Cleanup(stop)
+	instance, err := New(Options{DataDir: t.TempDir(), Listen: "127.0.0.1:0", Transport: transport, CanRestart: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- instance.Run(context.Background()) }()
+	base, err := instance.URL()
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, _ := http.NewRequest(http.MethodPost, base+"/app/restart", nil)
+	req.Header.Set(ClientHeader, "1")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("restart status = %d", resp.StatusCode)
+	}
+	select {
+	case err := <-done:
+		if !errors.Is(err, ErrRestart) {
+			t.Fatalf("Run returned %v, want ErrRestart", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Run did not return after a restart request")
+	}
+}
+
 func TestFacilityPricesComeThroughTheForwarder(t *testing.T) {
 	h := newHarness(t, true)
 	reply := h.api(t, http.MethodGet, "/hw/api/app/prisons/"+fakehw.PrisonID, "", nil)
@@ -439,5 +518,83 @@ func TestFacilityPricesComeThroughTheForwarder(t *testing.T) {
 	}
 	if json.Unmarshal(reply.Body, &prison); !reply.OK || prison.MessagingPrice["gif"] == 0 || prison.MessagingPrice["image"] == 0 {
 		t.Fatalf("prisons reply = %+v", reply)
+	}
+}
+
+// contacts lists the fake contacts through the forwarder.
+func (h *harness) contacts(t *testing.T) apiReply {
+	t.Helper()
+	return h.api(t, http.MethodPost, "/hw/api/app/inmates-by-visitor", formType, []byte("id="+fakehw.VisitorID))
+}
+
+// expireEverything kills the session and the remember cookies, the state the
+// app keeps landing in.
+func (h *harness) expireEverything() {
+	h.fake.ExpireAll()
+	h.fake.RevokeRemember()
+}
+
+func TestSignInWorksWithoutTheApp(t *testing.T) {
+	h := newHarness(t, false)
+	body := `{"username":"` + fakehw.Username + `","password":"` + fakehw.Password + `","save":true}`
+	status, data := h.do(t, http.MethodPost, "/app/account", "application/json", []byte(body))
+	if status != http.StatusOK || !strings.Contains(string(data), `"have_session":true`) || !strings.Contains(string(data), `"can_login":true`) {
+		t.Fatalf("sign in: %d %s", status, data)
+	}
+	if reply := h.contacts(t); !reply.OK {
+		t.Fatalf("contacts after signing in: %+v", reply)
+	}
+	if h.app.server.Service().Status().VisitorID != fakehw.VisitorID {
+		t.Error("the visitor id was not taken from the login reply")
+	}
+	_, data = h.do(t, http.MethodGet, "/app/config", "", nil)
+	if !strings.Contains(string(data), `"account_password_set":true`) || strings.Contains(string(data), fakehw.Password) {
+		t.Errorf("config reply: %s", data)
+	}
+	// Signing in again without retyping the password reuses the saved one.
+	status, _ = h.do(t, http.MethodPost, "/app/account", "application/json", []byte(`{"username":"`+fakehw.Username+`","password":"","save":true}`))
+	if status != http.StatusOK {
+		t.Errorf("sign in with the saved password: %d", status)
+	}
+	h.do(t, http.MethodDelete, "/app/account", "", nil)
+	if h.app.config.Get().Account.Saved() {
+		t.Error("the account was not forgotten")
+	}
+}
+
+func TestWrongPasswordIsNotSaved(t *testing.T) {
+	h := newHarness(t, false)
+	status, _ := h.do(t, http.MethodPost, "/app/account", "application/json", []byte(`{"username":"`+fakehw.Username+`","password":"nope","save":true}`))
+	if status != http.StatusUnauthorized || h.app.config.Get().Account.Saved() {
+		t.Errorf("wrong password: status %d, saved %v", status, h.app.config.Get().Account.Saved())
+	}
+}
+
+func TestSavedPasswordTakesOverWhenRememberCookiesDie(t *testing.T) {
+	h := newHarness(t, true)
+	h.app.config.Update(func(c *Config) { c.Account = Account{Username: fakehw.Username, Password: fakehw.Password} })
+	h.expireEverything()
+	if reply := h.contacts(t); !reply.OK {
+		t.Fatalf("contacts after everything expired: %+v", reply)
+	}
+	if logins := h.fake.Logins(); logins != 1 {
+		t.Errorf("logins = %d, want 1", logins)
+	}
+}
+
+func TestRefusedPasswordIsNotRetried(t *testing.T) {
+	h := newHarness(t, true)
+	h.app.config.Update(func(c *Config) { c.Account = Account{Username: fakehw.Username, Password: "changed since"} })
+	h.expireEverything()
+	for range 3 {
+		if reply := h.contacts(t); reply.OK {
+			t.Fatal("contacts worked with a wrong password")
+		}
+	}
+	if logins := h.fake.Logins(); logins != 1 {
+		t.Errorf("logins = %d, want 1 (a refused password must not be retried)", logins)
+	}
+	if status := h.app.server.Service().Status(); status.CanLogin || status.LoginRefused == "" {
+		t.Errorf("status = %+v, want the refusal reported", status)
 	}
 }

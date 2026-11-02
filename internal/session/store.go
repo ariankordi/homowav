@@ -38,6 +38,9 @@ type Creds struct {
 	JWTExpires time.Time `json:"jwt_expires,omitzero"`
 	// VoipToken is sent as "token" in refetch-session requests.
 	VoipToken string `json:"voip_token,omitempty"`
+	// FCMToken is the push token the app sent with its login. A login by
+	// hwclient sends it again, so the phone's notifications keep working.
+	FCMToken string `json:"fcm_token,omitempty"`
 	// RefetchUserAgent is the User-Agent the app used for refetch-session.
 	RefetchUserAgent string `json:"refetch_user_agent,omitempty"`
 

@@ -95,6 +95,71 @@ export class LocalApi {
 	}
 
 	/**
+	 * Saves the port for the next start; 0 goes back to the default.
+	 * @param port - The new port.
+	 * @returns The settings after the change.
+	 */
+	static savePort(port: number): Promise<AppConfig> {
+		return request("/app/port", {
+			method: "PUT",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ port }),
+		}) as Promise<AppConfig>;
+	}
+
+	/**
+	 * Signs in to the service with a password.
+	 * @param username - The account's username.
+	 * @param password - Empty reuses the saved password for the same username.
+	 * @param save - Keep the login for automatic sign-ins; false forgets a saved one.
+	 * @returns The status after signing in.
+	 */
+	static signIn(username: string, password: string, save: boolean): Promise<AppStatus> {
+		return request("/app/account", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ username, password, save }),
+		}) as Promise<AppStatus>;
+	}
+
+	/** Forgets the saved login; the current session stays. */
+	static forgetAccount(): Promise<AppConfig> {
+		return request("/app/account", { method: "DELETE" }) as Promise<AppConfig>;
+	}
+
+	/** Asks the program to stop and start again. */
+	static async restart(): Promise<void> {
+		await request("/app/restart", { method: "POST" });
+	}
+
+	/**
+	 * Waits until a server at origin is reachable (or, with wantUp false,
+	 * gone). The reply is opaque when origin is another port (no CORS), but
+	 * whether one arrives is all this needs.
+	 * @param origin - Such as "http://192.168.1.5:8123".
+	 * @param wantUp - Wait for it to answer (true) or to stop answering (false).
+	 * @param pollMs - Pause between tries.
+	 * @param timeoutMs - When to give up.
+	 * @returns Whether that happened in time.
+	 */
+	static async waitFor(origin: string, wantUp: boolean, pollMs: number, timeoutMs: number): Promise<boolean> {
+		const deadline = Date.now() + timeoutMs;
+		while (Date.now() < deadline) {
+			await new Promise((resolve) => setTimeout(resolve, pollMs));
+			let up = true;
+			try {
+				await fetch(`${origin}/app/status`, { mode: "no-cors", cache: "no-store" });
+			} catch {
+				up = false;
+			}
+			if (up === wantUp) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
 	 * Stores a file in the configured bucket.
 	 * @param file - The file to upload.
 	 * @returns Its public URL.

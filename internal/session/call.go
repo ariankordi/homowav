@@ -19,7 +19,7 @@ const (
 
 // ErrNoSession means nothing has been captured, so there is nothing to send
 // and nothing to renew with.
-var ErrNoSession = errors.New("session: no session captured yet; open the app once through the proxy")
+var ErrNoSession = errors.New("session: no session yet; open the app once through the proxy, or sign in under Settings")
 
 // Reply is a buffered upstream response.
 type Reply struct {

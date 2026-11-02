@@ -32,7 +32,7 @@ const (
 	maxForwardBody = 64 << 20
 	// Headers the iOS app 2.28.0 sends on API calls. The app puts unix
 	// seconds in Date, which is unusual but is what the service sees from it.
-	appVersion       = "2.28.0"
+	appVersion       = session.AppVersion
 	appVersionHeader = "X-App-Version"
 	appKindHeader    = "X-HomeWAV-App"
 	appKind          = "app_type_visitor"

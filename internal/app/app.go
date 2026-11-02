@@ -59,8 +59,12 @@ type Options struct {
 	// DataDir holds settings, credentials and certificates. Empty uses
 	// DefaultDataDir.
 	DataDir string
-	// Listen is the address for the proxy, the UI and the local API.
+	// Listen is the address for the proxy, the UI and the local API. Empty
+	// uses the port saved in settings, or else DefaultListen.
 	Listen string
+	// CanRestart tells the UI that the launcher relaunches the program when
+	// Run returns ErrRestart, so a port change can be applied from the UI.
+	CanRestart bool
 	// HTTPSListen optionally accepts direct TLS.
 	HTTPSListen string
 	// CertPath and KeyPath use an existing certificate instead of the managed
@@ -98,7 +102,17 @@ type App struct {
 	// uploadStall ends an upload whose sender has gone quiet this long; see
 	// stallTimeout. A field so tests can shorten it.
 	uploadStall time.Duration
+	// listenFromFlag is set when Options.Listen was given, so the saved port
+	// does not apply.
+	listenFromFlag bool
+	// restart asks Run to stop and return ErrRestart. Buffered, so a request
+	// never blocks the handler that makes it.
+	restart chan struct{}
 }
+
+// ErrRestart is returned by Run after RequestRestart. The launcher is expected
+// to start the program again, which picks up settings such as the port.
+var ErrRestart = errors.New("app: restart requested")
 
 // DefaultDataDir is the per-user folder for settings and credentials.
 func DefaultDataDir() (string, error) {
@@ -134,7 +148,16 @@ func New(options Options) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	instance := &App{options: options, config: settings, log: options.Logger, uploadStall: stallTimeout}
+	instance := &App{
+		options:        options,
+		config:         settings,
+		log:            options.Logger,
+		uploadStall:    stallTimeout,
+		listenFromFlag: options.Listen != "",
+		restart:        make(chan struct{}, 1),
+	}
+	instance.options.Listen = listenAddress(options.Listen, settings.Get().Port)
+	options = instance.options
 	instance.gate = Gate{Secret: instance.pairingSecret}
 
 	serverConfig := ServerConfig{
@@ -149,6 +172,7 @@ func New(options Options) (*App, error) {
 		Logger:      options.Logger,
 		Transport:   options.Transport,
 		Gate:        instance.gate.Wrap,
+		Account:     instance.savedAccount,
 	}
 	switch {
 	case options.CertPath != "" && options.KeyPath != "":
@@ -187,6 +211,12 @@ func (a *App) routes() {
 	a.server.Handle("/", web.Handler())
 }
 
+// savedAccount is the renewer's view of the saved login.
+func (a *App) savedAccount() (username, password string) {
+	account := a.config.Get().Account
+	return account.Username, account.Password
+}
+
 // pairingSecret is the gate's view of the secret.
 func (a *App) pairingSecret() string {
 	if a.options.SecretOverride != "" {
@@ -198,8 +228,55 @@ func (a *App) pairingSecret() string {
 // DataDir is the folder holding settings, credentials and certificates.
 func (a *App) DataDir() string { return a.options.DataDir }
 
-// Run serves until ctx ends or a listener fails.
-func (a *App) Run(ctx context.Context) error { return a.server.Run(ctx) }
+// listenAddress picks the entry address: an explicit one wins, then the
+// saved port (on all interfaces, like the default), then DefaultListen.
+func listenAddress(explicit string, savedPort int) string {
+	switch {
+	case explicit != "":
+		return explicit
+	case savedPort != 0:
+		return ":" + strconv.Itoa(savedPort)
+	default:
+		return DefaultListen
+	}
+}
+
+// Listen is the address the entry port binds, as resolved from the options
+// and settings. The tray uses it to find an instance that is already running.
+func (a *App) Listen() string { return a.options.Listen }
+
+// RequestRestart makes Run stop and return ErrRestart. It reports false when
+// the launcher cannot relaunch (Options.CanRestart is off).
+func (a *App) RequestRestart() bool {
+	if !a.options.CanRestart {
+		return false
+	}
+	select {
+	case a.restart <- struct{}{}:
+	default: // One is already pending.
+	}
+	return true
+}
+
+// Run serves until ctx ends, a listener fails, or a restart is requested
+// (then it returns ErrRestart once the server has shut down).
+func (a *App) Run(ctx context.Context) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	result := make(chan error, 1)
+	go func() { result <- a.server.Run(ctx) }()
+	select {
+	case err := <-result:
+		return err
+	case <-a.restart:
+		a.log.Info("restarting")
+		cancel()
+		if err := <-result; err != nil {
+			return err
+		}
+		return ErrRestart
+	}
+}
 
 // URL returns the address of the UI on this machine once Run is listening.
 func (a *App) URL() (string, error) {

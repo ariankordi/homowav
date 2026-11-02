@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "preact/hooks";
 import { LocalApi } from "../api";
+import { AppName, DefaultPort, MaxPort, MinPort, RestartPollMs, RestartWaitMs } from "../constants";
 import type { AppConfig, AppStatus, MediaConfig } from "../types";
 import { formatIsoTime } from "../util";
 import { QrCode } from "./QrCode";
@@ -57,7 +58,11 @@ function ConnectionCard({ status, onStatus }: SettingsProps) {
 	};
 	return (
 		<Card title="Connection" hint={`The session shared with the phone app for ${status.api_host}.`}>
-			{session.have_session ? <Notice tone="good">Connected.</Notice> : <Notice tone="warn">No session yet. Follow the phone setup below.</Notice>}
+			{session.have_session ? (
+				<Notice tone="good">Connected.</Notice>
+			) : (
+				<Notice tone="warn">No session yet. Sign in below, or follow the phone setup.</Notice>
+			)}
 			<dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
 				<dt class="text-muted">Session changed</dt>
 				<dd>{formatIsoTime(session.session_updated)}</dd>
@@ -226,6 +231,165 @@ function StorageCard({ config, onSaved }: StorageCardProps) {
 	);
 }
 
+interface AccountCardProps {
+	config: AppConfig;
+	status: AppStatus;
+	onSaved: (config: AppConfig) => void;
+	onStatus: (status: AppStatus) => void;
+}
+
+/**
+ * Signing in with a password. It gets a session without the phone, and a
+ * saved password lets the program sign in again by itself whenever the
+ * service's remember cookies stop working.
+ */
+function AccountCard({ config, status, onSaved, onStatus }: AccountCardProps) {
+	const [username, setUsername] = useState(config.account_username);
+	const [password, setPassword] = useState("");
+	const [save, setSave] = useState(true);
+	const [busy, setBusy] = useState(false);
+	const [notice, setNotice] = useState("");
+	const [error, setError] = useState("");
+	const run = async (action: () => Promise<void>) => {
+		setBusy(true);
+		setError("");
+		setNotice("");
+		try {
+			await action();
+		} catch (reason) {
+			setError(reason instanceof Error ? reason.message : String(reason));
+		} finally {
+			setBusy(false);
+		}
+	};
+	const signIn = (event: Event) => {
+		event.preventDefault();
+		void run(async () => {
+			onStatus(await LocalApi.signIn(username, password, save));
+			onSaved(await LocalApi.config());
+			setPassword("");
+			setNotice(save ? "Signed in. The password is saved for next time." : "Signed in. Nothing was saved.");
+		});
+	};
+	const forget = () =>
+		void run(async () => {
+			onSaved(await LocalApi.forgetAccount());
+			setNotice("The saved password was removed.");
+		});
+	const reusesSaved = config.account_password_set && username.trim() === config.account_username;
+	return (
+		<Card title="Sign in" hint="Optional. Signs in to HomeWAV from this computer, so it works without the phone.">
+			<form onSubmit={signIn} class="space-y-3">
+				<div class="grid gap-3 sm:grid-cols-2">
+					<Field label="Username" value={username} onInput={setUsername} />
+					<Field label="Password" type="password" value={password} onInput={setPassword} placeholder={reusesSaved ? "Saved. Leave empty to use it." : ""} />
+				</div>
+				<label class="flex items-start gap-2 text-sm">
+					<input type="checkbox" class="mt-1" checked={save} onChange={(event) => setSave(event.currentTarget.checked)} />
+					<span>
+						Save the password, so {AppName} can sign in again by itself when HomeWAV logs it out.
+						<span class="mt-1 block text-xs text-muted">
+							It is saved unencrypted in config.json in the data folder. Anyone who can read that folder, or a backup of it, can read the password.
+						</span>
+					</span>
+				</label>
+				<p class="text-xs text-muted">
+					HomeWAV allows one session per account. A phone using the proxy shares this one, but a phone that is not (on mobile data, for example) is signed
+					out, and signing back in there signs this computer out.
+				</p>
+				<div class="flex flex-wrap items-center gap-3">
+					<Button kind="primary" type="submit" disabled={busy}>
+						{busy ? "Signing in…" : "Sign in"}
+					</Button>
+					{config.account_password_set && (
+						<Button onClick={forget} disabled={busy}>
+							Forget saved password
+						</Button>
+					)}
+				</div>
+				{status.session.login_refused && <Notice tone="bad">The saved password stopped working: {status.session.login_refused}. Sign in again to replace it.</Notice>}
+				{notice && <Notice tone="good">{notice}</Notice>}
+				{error && <Notice tone="bad">{error}</Notice>}
+			</form>
+		</Card>
+	);
+}
+
+interface NetworkCardProps {
+	config: AppConfig;
+	onSaved: (config: AppConfig) => void;
+}
+
+/**
+ * The port. Changing it restarts the program, then moves this page to the
+ * new address once it answers there.
+ */
+function NetworkCard({ config, onSaved }: NetworkCardProps) {
+	const [port, setPort] = useState(String(config.port || config.listening_port || DefaultPort));
+	const [busy, setBusy] = useState(false);
+	const [notice, setNotice] = useState("");
+	const [error, setError] = useState("");
+	const save = async (event: Event) => {
+		event.preventDefault();
+		const wanted = Number(port);
+		if (!Number.isInteger(wanted) || wanted < MinPort || wanted > MaxPort) {
+			setError(`Enter a port from ${MinPort} to ${MaxPort}.`);
+			return;
+		}
+		setBusy(true);
+		setError("");
+		setNotice("");
+		try {
+			// The default is stored as 0, so a later change of the default applies.
+			const saved = await LocalApi.savePort(wanted === DefaultPort ? 0 : wanted);
+			onSaved(saved);
+			if (saved.port_from_flag) {
+				setNotice(`Saved. ${AppName} was started with -listen, which wins until it is started without it.`);
+				return;
+			}
+			if (wanted === saved.listening_port) {
+				setNotice("Saved. It is already listening on this port.");
+				return;
+			}
+			if (!saved.can_restart) {
+				setNotice(`Saved. Quit ${AppName} and start it again to use the new port.`);
+				return;
+			}
+			setNotice("Restarting…");
+			await LocalApi.restart();
+			const target = new URL(window.location.href);
+			target.port = String(wanted);
+			// The old copy has to let go of its port before the new one is checked.
+			await LocalApi.waitFor(window.location.origin, false, RestartPollMs, RestartWaitMs);
+			if (await LocalApi.waitFor(target.origin, true, RestartPollMs, RestartWaitMs)) {
+				window.location.assign(target.href);
+				return;
+			}
+			setNotice("");
+			setError(`${AppName} did not come back on port ${wanted}. Something else may be using it; the log in the data folder says why.`);
+		} catch (reason) {
+			setNotice("");
+			setError(reason instanceof Error ? reason.message : String(reason));
+		} finally {
+			setBusy(false);
+		}
+	};
+	return (
+		<Card title="Network" hint="The port for the phone's proxy and for this page. Phones set up with the old port stop connecting until their proxy URL (Phone setup, step 2) is changed to the new one.">
+			<form onSubmit={save} class="space-y-3">
+				<Field label="Port" inputMode="numeric" value={port} onInput={setPort} placeholder={String(DefaultPort)} hint={`Listening on ${config.listening_port} now.`} />
+				<div class="flex items-center gap-3">
+					<Button kind="primary" type="submit" disabled={busy}>
+						{busy ? "Applying…" : config.can_restart ? "Save and restart" : "Save"}
+					</Button>
+				</div>
+				{notice && <Notice tone="info">{notice}</Notice>}
+				{error && <Notice tone="bad">{error}</Notice>}
+			</form>
+		</Card>
+	);
+}
+
 /** The Settings screen. */
 export function Settings({ status, onStatus }: SettingsProps) {
 	const [config, setConfig] = useState<AppConfig | null>(null);
@@ -238,9 +402,11 @@ export function Settings({ status, onStatus }: SettingsProps) {
 	return (
 		<div class="mx-auto max-w-3xl space-y-4 p-4">
 			<ConnectionCard status={status} onStatus={onStatus} />
+			{config && <AccountCard config={config} status={status} onSaved={setConfig} onStatus={onStatus} />}
 			<PhoneSetupCard status={status} />
 			<PairingCard status={status} />
 			{config && <StorageCard config={config} onSaved={setConfig} />}
+			{config && <NetworkCard config={config} onSaved={setConfig} />}
 			{error && <Notice tone="bad">{error}</Notice>}
 		</div>
 	);

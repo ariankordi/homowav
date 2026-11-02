@@ -93,6 +93,7 @@ type observation struct {
 	jwtAccess        string
 	jwtRefresh       string
 	voipToken        string
+	fcmToken         string
 	refetchUserAgent string
 	visitorID        string
 }
@@ -111,6 +112,7 @@ func observeRequest(r *http.Request, body []byte) observation {
 	if isForm(r.Header.Get("Content-Type")) {
 		if form, err := url.ParseQuery(string(body)); err == nil {
 			obs.voipToken = firstNonEmpty(form.Get(loginVoipField), form.Get(refetchVoipField))
+			obs.fcmToken = form.Get(fcmField)
 			visitorID = firstNonEmpty(visitorID, form.Get(visitorIDParam))
 			if r.URL.Path == inmatesPath {
 				visitorID = firstNonEmpty(visitorID, form.Get(inmatesVisitorField))
@@ -198,6 +200,7 @@ func (o observation) apply(c *Creds, now time.Time) (changed bool) {
 	}
 	set(&c.JWTRefresh, o.jwtRefresh)
 	set(&c.VoipToken, o.voipToken)
+	set(&c.FCMToken, o.fcmToken)
 	set(&c.RefetchUserAgent, o.refetchUserAgent)
 	set(&c.VisitorID, o.visitorID)
 	return changed

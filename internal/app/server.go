@@ -58,6 +58,8 @@ type ServerConfig struct {
 	KeepAlive time.Duration
 	// AccessLog logs one line per request.
 	AccessLog bool
+	// Account supplies a saved login for when renewal fails. Nil disables it.
+	Account session.AccountSource
 	// Logger receives all logs. Nil discards them.
 	Logger *slog.Logger
 	// Transport sends upstream requests. Nil uses proxykit.NewTransport().
@@ -100,9 +102,11 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
+	renewer := session.NewRenewer(store, cfg.Transport, cfg.Host, cfg.Logger)
+	renewer.Account = cfg.Account
 	service := &session.Service{
 		Store:   store,
-		Renewer: session.NewRenewer(store, cfg.Transport, cfg.Host, cfg.Logger),
+		Renewer: renewer,
 		Log:     cfg.Logger,
 		Client:  &http.Client{Transport: cfg.Transport},
 		BaseURL: "https://" + cfg.Host,

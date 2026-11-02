@@ -24,12 +24,23 @@ type Status struct {
 	HaveVoipToken      bool      `json:"have_voip_token"`
 	VisitorID          string    `json:"visitor_id"`
 	RenewAttempts      int64     `json:"renew_attempts"`
+	// CanLogin reports a saved password that automatic logins may use.
+	CanLogin bool `json:"can_login"`
+	// LoginRefused is why the saved password stopped being used, if it did.
+	LoginRefused string `json:"login_refused,omitempty"`
 }
 
 // Status summarizes the current credentials for display.
 func (s *Service) Status() Status {
 	c := s.Store.Snapshot()
+	accountSaved, refused := s.Renewer.LoginState()
+	refusedText := ""
+	if refused != nil {
+		refusedText = refused.Error()
+	}
 	return Status{
+		CanLogin:           accountSaved && refused == nil,
+		LoginRefused:       refusedText,
 		HaveSession:        c.PHPSESSID != "",
 		SessionFingerprint: Fingerprint(c.PHPSESSID),
 		SessionUpdated:     c.SessionUpdated,

@@ -67,3 +67,14 @@ export const CopiedNoticeMs = 1500;
 
 /** Text length used when the facility's limit is missing from a contact. */
 export const FallbackTextLimit = 160;
+
+/** The port used when none is saved (Go: app.DefaultListen). */
+export const DefaultPort = 8080;
+
+/** Valid range of a saved port (Go: app.MinPort, app.MaxPort). */
+export const MinPort = 1;
+export const MaxPort = 65535;
+
+/** How often, and how long, the page checks for the restarted copy. */
+export const RestartPollMs = 500;
+export const RestartWaitMs = 20000;

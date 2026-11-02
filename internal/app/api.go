@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -48,6 +49,33 @@ type configReply struct {
 	Media     Media  `json:"media"`
 	// MediaSecretSet reports a stored secret without revealing it.
 	MediaSecretSet bool `json:"media_secret_set"`
+	// Port is the saved port, 0 when none is saved.
+	Port int `json:"port"`
+	// ListeningPort is the port this run actually bound.
+	ListeningPort int `json:"listening_port"`
+	// PortFromFlag is set when -listen overrides the saved port.
+	PortFromFlag bool `json:"port_from_flag"`
+	// CanRestart reports whether POST /app/restart works for this launcher.
+	CanRestart bool `json:"can_restart"`
+	// AccountUsername is the saved login's username; the password never
+	// leaves this machine's settings file.
+	AccountUsername string `json:"account_username"`
+	// AccountPasswordSet reports a saved password without revealing it.
+	AccountPasswordSet bool `json:"account_password_set"`
+}
+
+// signIn is the body of POST /app/account. An empty password reuses the
+// saved one for the same username.
+type signIn struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+	// Save keeps the login for automatic sign-ins; false forgets any saved one.
+	Save bool `json:"save"`
+}
+
+// portUpdate is the body of PUT /app/port. Zero goes back to the default.
+type portUpdate struct {
+	Port int `json:"port"`
 }
 
 // configUpdate is what the page sends. An empty bucket secret keeps the stored one.
@@ -63,6 +91,10 @@ func (a *App) api() http.Handler {
 	mux.HandleFunc("POST /app/renew", a.handleRenew)
 	mux.HandleFunc("GET /app/config", a.handleGetConfig)
 	mux.HandleFunc("PUT /app/config", a.handlePutConfig)
+	mux.HandleFunc("PUT /app/port", a.handlePutPort)
+	mux.HandleFunc("POST /app/restart", a.handleRestart)
+	mux.HandleFunc("POST /app/account", a.handleSignIn)
+	mux.HandleFunc("DELETE /app/account", a.handleForgetAccount)
 	mux.HandleFunc("POST /app/upload", a.handleUpload)
 	return mux
 }
@@ -104,7 +136,18 @@ func (a *App) handleGetConfig(w http.ResponseWriter, _ *http.Request) {
 // visibleConfig strips the bucket secret.
 func (a *App) visibleConfig() configReply {
 	settings := a.config.Get()
-	reply := configReply{VisitorID: settings.VisitorID, Media: settings.Media, MediaSecretSet: settings.Media.SecretAccessKey != ""}
+	reply := configReply{
+		VisitorID:      settings.VisitorID,
+		Media:          settings.Media,
+		MediaSecretSet: settings.Media.SecretAccessKey != "",
+		Port:           settings.Port,
+		ListeningPort:  a.port(),
+		PortFromFlag:   a.listenFromFlag,
+		CanRestart:     a.options.CanRestart,
+
+		AccountUsername:    settings.Account.Username,
+		AccountPasswordSet: settings.Account.Password != "",
+	}
 	reply.Media.SecretAccessKey = ""
 	return reply
 }
@@ -130,6 +173,84 @@ func (a *App) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 		c.VisitorID, c.Media = update.VisitorID, update.Media
 	})
 	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, a.visibleConfig())
+}
+
+// handlePutPort saves the port for the next start. It does not restart: the
+// page asks for that separately, once it knows where to reconnect.
+func (a *App) handlePutPort(w http.ResponseWriter, r *http.Request) {
+	var update portUpdate
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxConfigBody))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&update); err != nil {
+		writeError(w, http.StatusBadRequest, "the port is not valid JSON: "+err.Error())
+		return
+	}
+	if !ValidPort(update.Port) {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("the port must be between %d and %d", MinPort, MaxPort))
+		return
+	}
+	if err := a.config.Update(func(c *Config) { c.Port = update.Port }); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, a.visibleConfig())
+}
+
+// handleRestart stops the server so the launcher starts it again. The reply
+// goes out first: shutting down waits for running handlers.
+func (a *App) handleRestart(w http.ResponseWriter, _ *http.Request) {
+	if !a.RequestRestart() {
+		writeError(w, http.StatusConflict, "this copy cannot restart itself; quit and start it again")
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]bool{"ok": true})
+}
+
+// handleSignIn logs in with a username and password, then saves or forgets
+// them as asked. Nothing is saved unless the service accepted them.
+func (a *App) handleSignIn(w http.ResponseWriter, r *http.Request) {
+	var request signIn
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxConfigBody))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&request); err != nil {
+		writeError(w, http.StatusBadRequest, "the sign-in is not valid JSON: "+err.Error())
+		return
+	}
+	request.Username = strings.TrimSpace(request.Username)
+	saved := a.config.Get().Account
+	if request.Password == "" && request.Username == saved.Username {
+		request.Password = saved.Password
+	}
+	if request.Username == "" || request.Password == "" {
+		writeError(w, http.StatusBadRequest, "enter a username and a password")
+		return
+	}
+	if _, err := a.server.Service().Renewer.Login(r.Context(), request.Username, request.Password); err != nil {
+		status := http.StatusBadGateway
+		if errors.Is(err, session.ErrLoginRefused) {
+			status = http.StatusUnauthorized
+		}
+		writeError(w, status, err.Error())
+		return
+	}
+	account := Account{}
+	if request.Save {
+		account = Account{Username: request.Username, Password: request.Password}
+	}
+	if err := a.config.Update(func(c *Config) { c.Account = account }); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	a.handleStatus(w, r)
+}
+
+// handleForgetAccount removes the saved login. The session it created stays.
+func (a *App) handleForgetAccount(w http.ResponseWriter, _ *http.Request) {
+	if err := a.config.Update(func(c *Config) { c.Account = Account{} }); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
