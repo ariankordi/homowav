@@ -28,18 +28,17 @@ The request path, which takes reading several packages to see:
 - **Media.** Uploads stream from the browser through `/app/upload` to the user's own S3-compatible bucket (`s3.go`: hand-rolled SigV4, `UNSIGNED-PAYLOAD`). The message carries only the public link (`gallery_url`).
 - **The `web/` folder** is a Vite + Preact + Tailwind app, embedded with `go:embed all:dist`. Routes live in the URL hash (`route.ts`), so a reload stays on the open thread. New messages are found by polling `/api/visitor/heartbeat`.
 - **`internal/fakehw`** is an in-memory fake of the service. `hwclient-dev` and the Go tests both run against it.
-- **`internal/proxykit`** is a copy of `../go/proxykit` (the proxy-tests demo), with additions (`Flow.Reforward`, `Proxy.ListedOnly`). The two copies have diverged, so a fix to one does not reach the other.
+- **`internal/proxykit`** is a generic PAC + MITM proxy library, copied from a standalone demo, with additions (`Flow.Reforward`, `Proxy.ListedOnly`).
 
 The package comment in `internal/app/app.go` maps each file to its job.
 
-## Rules from the user's past sessions
+## Conventions
 
-- **Never send to the real HomeWAV API during development.** Messages cost money and reach a real person. Test against `fakehw` / `hwclient-dev`.
+- **Never send to the real HomeWAV API during development.** Messages cost money and are delivered. Test against `fakehw` / `hwclient-dev`.
 - **The MITM proxy is required, not a workaround.** HomeWAV allows one session per account, so logging in directly would log the phone out. Don't propose direct login. Put onboarding effort into making the CA and PAC setup easier.
 - **Naming:** the code says `hwclient` (module, binary, data folder, `HWCLIENT_*` env vars, `X-HW-Client`). The user-facing name lives only in `app.Name` (Go) and `AppName` (`web/src/constants.ts`), both currently "HW Client", and will be rebranded. "homowav" survives only as the folder name. "HomeWAV"/"homewav" means the real vendor (`app.homewav.com`), which is correct.
-- **Keep packages few.** The user dislikes one-folder-per-concern Go packages: everything app-specific stays in `internal/app`. Don't add a package for something small.
-- **Audio is `.m4a` only, with no conversion.** `elapsed_time` stays editable, because the user sends music as voice messages with a tiny duration. Don't add yt-dlp-style fetching or transcoding.
+- **Keep packages few.** No one-folder-per-concern Go packages: everything app-specific stays in `internal/app`. Don't add a package for something small.
+- **Audio is `.m4a` only, with no conversion.** The `elapsed_time` sent with audio is user-editable on purpose. Don't add yt-dlp-style fetching or transcoding.
 - **Unknowns, not facts:** how `image`/`video` sends to your own URL look (assumed: `type=image|video` + `gallery_url`), media message prices, JWT expiry, idle `PHPSESSID` lifetime. `X-HomeWAV-Signature` is passed through and appears not to be enforced.
-- **Captures** (mitmproxy flows/HARs) are under `~/Downloads`. Inspect them with the mitmproxy MCP first. It silently imports 0 records from native `.flow` files, so convert with `mitmdump -nq -r <flow> --set hardump=<out>.har`. Print shapes, not secret values.
-- **Releases:** five targets. Windows/Linux are pure Go (`CGO_ENABLED=0`). macOS needs cgo for the systray, so it is built with zig cc against a downloaded SDK into `toolchains/` and ad-hoc signed (rcodesign on Linux). A `v*` tag makes a draft GitHub release that includes the user-written `INSTRUCTIONS.md`. The remote is `gitea`. Ask before pushing or tagging. The user writes the repo description, `INSTRUCTIONS.md` and LICENSE.
-- **Gitignored local files** that matter: `cert.pem`/`privkey.pem` (old static cert), `state.json` (captured credentials), and `dist/` and `toolchains/` (release builds). Never commit keys or `state.json`. Scratch output goes in `scratch/`.
+- **Releases:** five targets. Windows/Linux are pure Go (`CGO_ENABLED=0`). macOS needs cgo for the systray, so it is built with zig cc against a downloaded SDK into `toolchains/` and ad-hoc signed (rcodesign on Linux). A `v*` tag makes a draft GitHub release that attaches `INSTRUCTIONS.md` from the repo root.
+- **Never commit keys or credentials:** `*.pem`, `*.key` and `state.json` (captured session cookies) are gitignored for that reason. Scratch output goes in the gitignored `scratch/`.
