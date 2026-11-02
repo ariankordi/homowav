@@ -82,8 +82,34 @@ function ConnectionCard({ status, onStatus }: SettingsProps) {
 	);
 }
 
+/** Phone systems the setup steps are written for. */
+type PhoneKind = "ios" | "android";
+
+/** Labels of the phone switch. */
+const PhoneLabels: Record<PhoneKind, string> = { ios: "iPhone", android: "Android" };
+
+/** Steps that differ between phone systems. */
+const PhoneSteps: Record<PhoneKind, { open: string; trust: string; proxy: string }> = {
+	ios: {
+		open: "Open this link in Safari on the phone and allow the profile download. Other browsers on iPhone cannot install it.",
+		trust: "Then install it under Settings › General › VPN & Device Management, and switch it on under Settings › General › About › Certificate Trust Settings.",
+		proxy: "Settings › Wi-Fi › (your network) › Configure Proxy › Automatic, and enter this URL.",
+	},
+	android: {
+		open: "Open this link in the phone's browser to download the certificate.",
+		trust:
+			"Then install it under Settings › Security › Encryption & credentials › Install a certificate › CA certificate, and pick the downloaded file. The menu names differ by maker; searching Settings for \"CA certificate\" finds it.",
+		proxy: "Settings › Wi-Fi › (your network) › Edit (or the gear) › Advanced › Proxy › Proxy Auto-Config, and enter this URL.",
+	},
+};
+
+/** Guesses the phone from the browser showing this page; a computer gets iPhone. */
+const guessPhone = (): PhoneKind => (/android/i.test(navigator.userAgent) ? "android" : "ios");
+
 /** The three steps that connect a phone. */
 function PhoneSetupCard({ status }: SectionProps) {
+	const [phone, setPhone] = useState<PhoneKind>(guessPhone);
+	const steps = PhoneSteps[phone];
 	const pacUrl = status.pac_urls[0];
 	if (!pacUrl) {
 		return (
@@ -96,18 +122,31 @@ function PhoneSetupCard({ status }: SectionProps) {
 	const connected = status.session.have_session && status.session.can_renew;
 	return (
 		<Card title="Phone setup" hint="Do this once per phone. The phone must be on the same Wi-Fi as this computer.">
+			<div class="flex gap-2" role="group" aria-label="Phone type">
+				{(Object.keys(PhoneLabels) as PhoneKind[]).map((kind) => (
+					<button
+						key={kind}
+						type="button"
+						aria-pressed={phone === kind}
+						onClick={() => setPhone(kind)}
+						class={[
+							"rounded-full border px-3 py-1 text-sm",
+							phone === kind ? "border-accent bg-accent text-accent-ink" : "border-line bg-panel",
+						].join(" ")}
+					>
+						{PhoneLabels[kind]}
+					</button>
+				))}
+			</div>
 			<ol class="list-decimal space-y-5 pl-5 text-sm">
 				<li>
 					<p class="font-medium">Trust this computer's certificate</p>
 					{caUrl ? (
 						<div class="mt-2 space-y-2">
-							<p class="text-muted">Open this link in Safari on the phone and allow the profile download.</p>
+							<p class="text-muted">{steps.open}</p>
 							<QrCode text={caUrl} label="QR code of the certificate link" />
 							<CopyRow value={caUrl} />
-							<p class="text-muted">
-								Then install it under Settings › General › VPN &amp; Device Management, and switch it on under Settings › General › About › Certificate Trust
-								Settings.
-							</p>
+							<p class="text-muted">{steps.trust}</p>
 							<p class="text-xs text-muted">Fingerprint (SHA-256): {groupFingerprint(status.ca_fingerprint)}</p>
 						</div>
 					) : (
@@ -117,7 +156,9 @@ function PhoneSetupCard({ status }: SectionProps) {
 				<li>
 					<p class="font-medium">Point the phone's Wi-Fi at the proxy</p>
 					<div class="mt-2 space-y-2">
-						<p class="text-muted">Settings › Wi-Fi › (your network) › Configure Proxy › Automatic, and enter this URL. Only {status.api_host} is routed here.</p>
+						<p class="text-muted">
+							{steps.proxy} Only {status.api_host} is routed here.
+						</p>
 						<CopyRow value={pacUrl} />
 						{status.pac_urls.length > 1 && <p class="text-xs text-muted">Other addresses of this computer: {status.pac_urls.slice(1).join(", ")}</p>}
 					</div>

@@ -578,3 +578,14 @@ func selfSignedCert(t *testing.T, host string) (tls.Certificate, *x509.CertPool)
 	pool.AddCert(leaf)
 	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key, Leaf: leaf}, pool
 }
+
+func TestBothLoginPathsAreAuthPaths(t *testing.T) {
+	for _, path := range []string{"/api/app/login/", "/api/app/login", "/api/app/refetch-session/v2"} {
+		if !isAuthPath(path) {
+			t.Errorf("isAuthPath(%q) = false", path)
+		}
+	}
+	if isAuthPath("/api/app/login-history") {
+		t.Error("a path that only starts like login was treated as login")
+	}
+}

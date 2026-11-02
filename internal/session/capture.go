@@ -21,8 +21,12 @@ const (
 	apiPrefix = "/api/"
 	// refetchPath exchanges the remember cookies for a new PHPSESSID.
 	refetchPath = "/api/app/refetch-session/v2"
-	// loginPath checks the password. Its failures are the user's, never a stale session.
+	// loginPath checks the password. Its failures are the user's, never a
+	// stale session. The iOS app posts here; hwclient's own login does too.
 	loginPath = "/api/app/login/"
+	// androidLoginPath is the same login as the Android app (2.28.1) sends it,
+	// without the trailing slash.
+	androidLoginPath = "/api/app/login"
 	// loggedOutCause is the "cause" of an {"ok":false} reply to an expired
 	// session. The server sends it with HTTP 200, never 401.
 	loggedOutCause = "You must be logged in to access the requested page"
@@ -69,7 +73,9 @@ func (e envelope) maybeStaleSession() bool { return e.failed() && e.Cause != per
 
 // isAuthPath reports the calls that create sessions, which are never retried
 // with a different session (a wrong password must not look like a logout).
-func isAuthPath(path string) bool { return path == loginPath || path == refetchPath }
+func isAuthPath(path string) bool {
+	return path == loginPath || path == androidLoginPath || path == refetchPath
+}
 
 // parseEnvelope decodes body if the content type is JSON and it has an "ok" field.
 func parseEnvelope(contentType string, body []byte) (envelope, bool) {
