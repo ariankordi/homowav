@@ -1,7 +1,7 @@
 /** @file All network access of the UI: the local settings API and the service API. */
 
 import { ApiBase, ClientHeader, MsPerSecond, ThreadPageSize, VoiceContentType } from "./constants";
-import type { AppConfig, AppStatus, Contact, Heartbeat, Message, MessageInit, OutgoingMessage } from "./types";
+import type { AppConfig, AppStatus, Contact, Heartbeat, Message, MessageInit, OutgoingMessage, Prison } from "./types";
 
 /** The {ok, cause, body} wrapper both the service and the Go side use. */
 interface Envelope<T> {
@@ -119,8 +119,29 @@ const withTimestamp = (message: Message): Message =>
 		? message
 		: { ...message, created_timestamp: Math.floor(Date.now() / MsPerSecond) };
 
+/**
+ * Facility details by id, fetched once per page load: prices do not change
+ * while a conversation is open, and contacts often share a facility.
+ */
+const prisonCache = new Map<string, Promise<Prison>>();
+
 /** The parts of the service API the UI uses. Shapes follow captures of the app. */
 export class ServiceApi {
+	/**
+	 * A facility's details, including its message prices.
+	 * @param prisonId - Contact.prison_id.
+	 * @returns The facility; a failed fetch is not cached, so it is retried next time.
+	 */
+	static prison(prisonId: string): Promise<Prison> {
+		let pending = prisonCache.get(prisonId);
+		if (!pending) {
+			pending = service<Prison>(`/api/app/prisons/${encodeURIComponent(prisonId)}`);
+			pending.catch(() => prisonCache.delete(prisonId));
+			prisonCache.set(prisonId, pending);
+		}
+		return pending;
+	}
+
 	static contacts(visitorId: string): Promise<Contact[]> {
 		return service<Contact[]>("/api/app/inmates-by-visitor", {
 			method: "POST",

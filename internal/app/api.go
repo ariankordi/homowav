@@ -167,7 +167,7 @@ func (a *App) handleUpload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("the file is too large (the limit is %d GiB)", MaxUploadSize>>30))
 		return
 	}
-	key, err := NewMediaKey(media.KeyPrefix, r.URL.Query().Get(uploadNameParam))
+	key, err := NewMediaKey(media.KeyPrefix, r.URL.Query().Get(uploadNameParam), time.Now())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

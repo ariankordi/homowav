@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -149,14 +150,38 @@ func TestPublicURLDefaults(t *testing.T) {
 }
 
 func TestNewKey(t *testing.T) {
-	key, err := NewMediaKey("hw/", "Holiday Photo (1).JPEG")
-	if err != nil || !strings.HasPrefix(key, "hw/") || !strings.HasSuffix(key, ".jpeg") || strings.Contains(key, "Holiday") {
+	now := time.Date(2026, 11, 2, 14, 30, 5, 0, time.Local)
+	key, err := NewMediaKey("hw/", "Holiday Photo (1).JPEG", now)
+	if err != nil || !regexp.MustCompile(`^hw/2026-11-02_143005_Holiday-Photo-1_[0-9a-f]{16}\.jpeg$`).MatchString(key) {
 		t.Errorf("key = %q, %v", key, err)
 	}
-	if other, _ := NewMediaKey("hw/", "Holiday Photo (1).JPEG"); other == key {
-		t.Error("two keys for the same name collided")
+	if other, _ := NewMediaKey("hw/", "Holiday Photo (1).JPEG", now); other == key {
+		t.Error("two keys for the same name and second collided")
 	}
-	if key, _ := NewMediaKey("", "evil.p/../x"); strings.ContainsAny(key, "/.") {
-		t.Errorf("unsafe extension survived: %q", key)
+	if key, _ := NewMediaKey("", "evil.p/../x", now); strings.ContainsAny(key, "/.") {
+		t.Errorf("unsafe name survived: %q", key)
+	}
+}
+
+func TestMediaSlug(t *testing.T) {
+	cases := map[string]string{
+		// yt-dlp's default name: the id keeps its case and is never cut off.
+		"Rick Astley - Never Gonna Give You Up (Official Music Video) [dQw4w9WgXcQ].mp4": "Rick-Astley-Never_dQw4w9WgXcQ",
+		"[dQw4w9WgXcQ].webm":                "dQw4w9WgXcQ",
+		"MyClip.MOV":                        "MyClip",
+		"IMG_1234.HEIC":                     "",
+		"PXL_20261102_143005123.jpg":        "",
+		"image.jpg":                         "",
+		"写真.png":                            "",
+		`C:\Users\me\Secret Folder\a b.png`: "a-b",
+		"a_very_long_name_that_goes_on_and_on_forever.gif": "a_very_long_name_that_goes_on",
+	}
+	for name, want := range cases {
+		if got := mediaSlug(name); got != want {
+			t.Errorf("mediaSlug(%q) = %q, want %q", name, got, want)
+		}
+		if got := mediaSlug(name); len(got) > maxSlugLength {
+			t.Errorf("mediaSlug(%q) is %d bytes, over %d", name, len(got), maxSlugLength)
+		}
 	}
 }

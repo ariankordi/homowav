@@ -333,7 +333,7 @@ func TestUpload(t *testing.T) {
 		URL string `json:"url"`
 	}
 	json.Unmarshal(data, &reply)
-	if status != http.StatusOK || string(stored) != "GIF89a" || !strings.HasPrefix(storedPath, "/b/hw/") || !strings.HasSuffix(reply.URL, ".gif") || strings.Contains(reply.URL, "Photo") {
+	if status != http.StatusOK || string(stored) != "GIF89a" || !strings.HasPrefix(storedPath, "/b/hw/") || !strings.HasSuffix(reply.URL, ".gif") || !strings.Contains(reply.URL, "_My-Photo_") {
 		t.Errorf("upload: %d %s; stored %q at %q", status, data, stored, storedPath)
 	}
 }
@@ -428,5 +428,16 @@ func TestUploadEndsWhenTheSenderStalls(t *testing.T) {
 	status, reply := rawUpload(t, h, "Content-Length: 10\r\n", "ab")
 	if status != http.StatusBadGateway {
 		t.Errorf("stalled upload: %d %s, want %d", status, reply, http.StatusBadGateway)
+	}
+}
+
+func TestFacilityPricesComeThroughTheForwarder(t *testing.T) {
+	h := newHarness(t, true)
+	reply := h.api(t, http.MethodGet, "/hw/api/app/prisons/"+fakehw.PrisonID, "", nil)
+	var prison struct {
+		MessagingPrice map[string]float64 `json:"messaging_price"`
+	}
+	if json.Unmarshal(reply.Body, &prison); !reply.OK || prison.MessagingPrice["gif"] == 0 || prison.MessagingPrice["image"] == 0 {
+		t.Fatalf("prisons reply = %+v", reply)
 	}
 }

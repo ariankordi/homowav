@@ -5,9 +5,11 @@ import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { ServiceApi } from "../api";
 import { FollowThresholdPx, ThreadPageSize } from "../constants";
 import { ChatHash } from "../route";
-import type { Contact, Message, OutgoingMessage } from "../types";
+import { classes } from "../util";
+import type { Contact, Message, OutgoingMessage, Prison } from "../types";
 import { Composer } from "./Composer";
 import { MessageList } from "./MessageBubble";
+import { PriceSheet } from "./PriceSheet";
 import { Button, Notice } from "./ui";
 
 /** The newest page of a thread; older ones are fetched on request. */
@@ -65,6 +67,27 @@ export function Thread({ contact, visitorId, mediaConfigured, online, balance, r
 	const currentContact = useRef(contact.id);
 	/** Whether the first page has arrived, read by refresh without waiting for a render. */
 	const firstPageLoaded = useRef(false);
+	const [prison, setPrison] = useState<Prison | null>(null);
+	const [prisonError, setPrisonError] = useState("");
+	const [pricesOpen, setPricesOpen] = useState(false);
+
+	// The facility's prices, loaded once when the conversation opens (as the
+	// app does). They feed the price sheet and the composer's choice of type.
+	useEffect(() => {
+		setPrison(null);
+		setPrisonError("");
+		const prisonId = contact.prison_id;
+		if (!prisonId) {
+			return;
+		}
+		let current = true;
+		ServiceApi.prison(prisonId)
+			.then((loaded) => current && setPrison(loaded))
+			.catch((reason: unknown) => current && setPrisonError(reason instanceof Error ? reason.message : String(reason)));
+		return () => {
+			current = false;
+		};
+	}, [contact.prison_id]);
 
 	const refresh = async () => {
 		const contactId = contact.id;
@@ -172,8 +195,19 @@ export function Thread({ contact, visitorId, mediaConfigured, online, balance, r
 						{balance && ` · balance $${balance}`}
 					</p>
 				</div>
+				<button
+					type="button"
+					aria-expanded={pricesOpen}
+					aria-label="Prices"
+					title="Prices"
+					onClick={() => setPricesOpen(!pricesOpen)}
+					class={classes("rounded-full border px-2.5 py-0.5 text-sm", pricesOpen ? "border-accent bg-accent text-accent-ink" : "border-line")}
+				>
+					i
+				</button>
 				{headerExtra}
 			</header>
+			{pricesOpen && <PriceSheet contact={contact} prison={prison} error={prisonError} balance={balance} />}
 			<div ref={scroller} class="min-h-0 flex-1 overflow-y-auto px-3 py-4">
 				{hasOlder && (
 					<div class="mb-3 text-center">
@@ -191,7 +225,7 @@ export function Thread({ contact, visitorId, mediaConfigured, online, balance, r
 					</div>
 				)}
 			</div>
-			<Composer contact={contact} mediaConfigured={mediaConfigured} onSend={send} />
+			<Composer contact={contact} prices={prison?.messaging_price} mediaConfigured={mediaConfigured} onSend={send} />
 		</div>
 	);
 }

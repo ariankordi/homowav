@@ -32,6 +32,8 @@ const (
 	// textPrice and mediaPrice are the fake per-message prices.
 	textPrice  = "0.25"
 	mediaPrice = "0.50"
+	// PrisonID is the fake facility both contacts are in.
+	PrisonID = "8000001"
 	// onlineColor and offlineColor are the heartbeat's presence values.
 	onlineColor  = "green"
 	offlineColor = "red"
@@ -195,6 +197,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.send(w, r)
 	case "/api/visitor/heartbeat":
 		s.heartbeat(w)
+	case "/api/app/prisons/" + PrisonID:
+		s.prison(w)
 	default:
 		fail(w, "Invalid request")
 	}
@@ -212,6 +216,20 @@ func (s *Server) refetch(w http.ResponseWriter, r *http.Request) {
 	ok(w, map[string]any{"is_logged_in": true})
 }
 
+// prison answers /api/app/prisons/<id> with the fields the UI reads, in the
+// real shape: messaging_price holds numbers, the other prices strings. As at
+// the real facility it was copied from, a GIF costs less than an image.
+func (s *Server) prison(w http.ResponseWriter) {
+	ok(w, map[string]any{
+		"id": PrisonID, "name": "Example County Detention Center",
+		"messaging_price":                map[string]float64{"video": 0.1, "library": 0.1, "image": 0.25, "gif": 0.1, "text": 0.03},
+		"price_per_voice_message_minute": "0.02",
+		"price_per_emoji_symbol":         "0.00",
+		"enable_emoji_price":             "0",
+		"price_per_s3_video_message":     nil,
+	})
+}
+
 func (s *Server) inmates(w http.ResponseWriter, r *http.Request) {
 	if r.FormValue("id") != VisitorID {
 		fail(w, "Invalid request")
@@ -220,7 +238,7 @@ func (s *Server) inmates(w http.ResponseWriter, r *http.Request) {
 	contact := func(id, first, last string, textLimit string, gif bool) map[string]any {
 		return map[string]any{
 			"id": id, "visitor_id": VisitorID, "first_name": first, "last_name": last,
-			"full_name": first + " " + last, "prison_name": "Example County Detention Center",
+			"full_name": first + " " + last, "prison_id": PrisonID, "prison_name": "Example County Detention Center",
 			"relationship": "Friend", "approved": "yes", "credit_balance": "12.50", "bonus_balance": "0.00",
 			"prison_price_per_text_message": textPrice, "prison_price_per_video_message": mediaPrice,
 			"prison_max_text_message_length": textLimit, "prison_max_voice_message_length": "60",

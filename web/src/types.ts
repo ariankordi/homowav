@@ -65,6 +65,8 @@ export interface Contact {
 	id: string;
 	visitor_id: string;
 	full_name: string;
+	/** The facility; GET /api/app/prisons/<id> has its prices. */
+	prison_id?: string;
 	prison_name: string;
 	relationship?: string;
 	credit_balance?: string;
@@ -76,6 +78,26 @@ export interface Contact {
 	messages_disabled?: string | null;
 	chat_disabled?: string | null;
 	messaging_enabled?: MessagingEnabled;
+}
+
+/** Kinds of message with a flat price in Prison.messaging_price. */
+export type PricedType = "video" | "library" | "image" | "gif" | "text";
+
+/**
+ * Reply of GET /api/app/prisons/<id>, which the app fetches when a
+ * conversation opens. Only the fields the UI reads are listed. Prices are
+ * dollars: numbers in messaging_price, strings elsewhere.
+ */
+export interface Prison {
+	id: string;
+	name: string;
+	/** Price of one message of each kind. */
+	messaging_price?: Partial<Record<PricedType, number>>;
+	/** Voice messages are charged by the minute. */
+	price_per_voice_message_minute?: string | null;
+	/** Only charged when enable_emoji_price is "1". */
+	price_per_emoji_symbol?: string | null;
+	enable_emoji_price?: string;
 }
 
 /** Kinds of message the service knows. */

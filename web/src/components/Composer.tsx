@@ -3,8 +3,8 @@
 import { useRef, useState } from "preact/hooks";
 import { ApiError, LocalApi } from "../api";
 import { FallbackTextLimit, VoiceExtension } from "../constants";
-import type { Contact, MessageType, MessagingEnabled, OutgoingMessage } from "../types";
-import { audioDuration, classes, extensionOf, isHttpUrl, parseNumber } from "../util";
+import type { Contact, MessageType, MessagingEnabled, OutgoingMessage, PricedType } from "../types";
+import { audioDuration, classes, extensionOf, formatDollars, isHttpUrl, parseNumber } from "../util";
 import { Button, Notice } from "./ui";
 
 /** Media kinds that are sent as a public URL. */
@@ -14,7 +14,7 @@ type UrlMediaType = Extract<MessageType, "gif" | "image" | "video">;
 const UrlMediaLabels: Record<UrlMediaType, string> = { gif: "GIF", image: "Image", video: "Video" };
 
 /** Extensions that suggest a video when a file or URL is chosen. */
-const VideoExtensions = [".mp4", ".mov", ".m4v", ".webm"];
+const VideoExtensions = [".mp4", ".mov", ".qt", ".m4v", ".webm", ".mkv", ".avi", ".3gp"];
 
 /** Decimal places of the length reported for a recording, as the app sends it. */
 const ElapsedDecimals = 3;
@@ -29,26 +29,49 @@ type Attachment =
 
 interface ComposerProps {
 	contact: Contact;
+	/** The facility's per-message prices, once loaded. */
+	prices: Partial<Record<PricedType, number>> | undefined;
 	/** Whether an upload bucket is set up. */
 	mediaConfigured: boolean;
 	/** Sends the message; rejects with the reason when it fails. */
 	onSend: (outgoing: OutgoingMessage) => Promise<void>;
 }
 
-/** Guesses the kind to send a file or URL as; the user can change it. */
-const guessMediaType = (name: string, enabled: MessagingEnabled): UrlMediaType => {
+/**
+ * Guesses the kind to send a file or URL as; the user can change it. A GIF
+ * file goes as a GIF, so it stays animated. Any other picture goes as
+ * whichever of Image and GIF is cheaper: the recipient sees a still picture
+ * sent as a GIF just the same. A tie, or unknown prices, keeps Image.
+ * @param name - The file name or URL.
+ * @param enabled - What the facility allows.
+ * @param prices - The facility's prices, if loaded.
+ * @returns The kind to preselect.
+ */
+const guessMediaType = (
+	name: string,
+	mimeType: string,
+	enabled: MessagingEnabled,
+	prices: Partial<Record<PricedType, number>> | undefined,
+): UrlMediaType => {
 	const extension = extensionOf(name);
-	if (VideoExtensions.includes(extension) && enabled.video) {
+	// The browser's type wins over the extension: it covers names like
+	// "clip.MOV.download" or containers missing from VideoExtensions.
+	const looksLikeVideo = mimeType.startsWith("video/") || VideoExtensions.includes(extension);
+	if (looksLikeVideo && enabled.video) {
 		return "video";
 	}
 	if (extension === ".gif" && enabled.gif) {
 		return "gif";
 	}
+	if (enabled.image && enabled.gif) {
+		const gifIsCheaper = prices?.gif !== undefined && prices.image !== undefined && prices.gif < prices.image;
+		return gifIsCheaper ? "gif" : "image";
+	}
 	return enabled.image ? "image" : enabled.gif ? "gif" : "video";
 };
 
 /** The composer under a thread. */
-export function Composer({ contact, mediaConfigured, onSend }: ComposerProps) {
+export function Composer({ contact, prices, mediaConfigured, onSend }: ComposerProps) {
 	const [text, setText] = useState("");
 	const [attachment, setAttachment] = useState<Attachment | null>(null);
 	const [busy, setBusy] = useState(false);
@@ -88,7 +111,7 @@ export function Composer({ contact, mediaConfigured, onSend }: ComposerProps) {
 		setBusy(true);
 		try {
 			const url = await LocalApi.upload(file);
-			setAttachment({ kind: "media", url, type: guessMediaType(file.name, enabled) });
+			setAttachment({ kind: "media", url, type: guessMediaType(file.name, file.type, enabled, prices) });
 		} catch (reason) {
 			fail(reason);
 		} finally {
@@ -187,6 +210,7 @@ export function Composer({ contact, mediaConfigured, onSend }: ComposerProps) {
 								)}
 							>
 								{UrlMediaLabels[type]}
+								{prices?.[type] !== undefined && <span class="opacity-75"> · {formatDollars(prices[type])}</span>}
 							</button>
 						))}
 						{mediaConfigured ? (

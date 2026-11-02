@@ -67,6 +67,9 @@ export const isDisplayableUrl = (url: string): boolean => /^(https?:\/\/|data:im
 /** Whether a string is an absolute http(s) URL, as the service needs for media. */
 export const isHttpUrl = (value: string): boolean => /^https?:\/\/\S+$/i.test(value.trim());
 
+/** Formats a price or balance in dollars, as the app shows them. */
+export const formatDollars = (amount: number): string => `$${amount.toFixed(2)}`;
+
 /** Parses the service's numbers-as-strings; fallback when missing or invalid. */
 export const parseNumber = (value: string | undefined | null, fallback: number): number => {
 	const parsed = Number(value);
