@@ -32,6 +32,29 @@ The request path, which takes reading several packages to see:
 
 The package comment in `internal/app/app.go` maps each file to its job.
 
+Other details:
+- **Data folder:** `state.json` (credentials), `config.json` (settings) and `certs/`. An existing CA is always kept, and only the leaf is reissued. So a rename of `app.Name` only changes the CA name for new installs. With `-cert`/`-key` there is no CA for the UI to offer.
+- **Limits:** uploads go up to 5 GiB (S3's single-PUT maximum) and are abandoned after 2 minutes without progress. The `/hw` forwarder holds request bodies in memory, up to 64 MiB, so it can replay them after a renewal.
+- **Media hosts:** the recipient's side only shows media from hosts it allows. `<bucket>.s3.amazonaws.com` is known to work, which is why it is the default public address.
+
+## HomeWAV API (as observed)
+
+Learned from captures of iOS app 2.28.0. Field and type names are in `web/src/types.ts`.
+
+- **Send:** `GET /api/message/init?inmate_id=&visitor_id=` returns `body.pubid`. It works without a cookie, but one is sent anyway. Then `POST /api/message/send`:
+  - text, GIF and links: urlencoded `type, body, elapsed_time, gallery_url, inmate_id, visitor_id, pubid, sender=visitor`.
+  - voice: multipart with a `voice` part (`audio/m4a`), and without `visitor_id` or `gallery_url`.
+  - The reply has no `created_timestamp`, so the UI fills one in.
+- **Contacts:** `POST /api/app/inmates-by-visitor`, with form `id` set to the visitor id. Each row has about 70 flat fields, mostly strings, including numbers and booleans.
+- **Thread:** `GET /api/app/visitor/chat?inmate_id&page&limit`.
+- **Heartbeat:** `GET /api/visitor/heartbeat?ctx=mobile`. The app polls it about every 10 s. It returns `status{<contact id>: green|red}`, `unread_messages_count` as a string, and `credit_balances`.
+- **Session:**
+  - `PHPSESSID` authorizes calls. The JWT is only issued by login.
+  - Refetch posts `jwtAccess`, `jwtRefresh` and `token` (the VoIP token) with a `Refresh-Token` header. The new `PHPSESSID` arrives in `Set-Cookie`. The reply body's `php_session_id` is the *previous* session, so don't read it.
+  - The app itself fires parallel refetches on a burst of failures, and each one rotates `PHPSESSID`. hwclient rate-limits its own renewals (`renew.go`).
+  - A dead session doesn't always say "You must be logged in": `prisons/<id>` answers `Invalid request`. Any `ok:false` other than a permission error is treated as possibly stale.
+  - `pusher-auth` replies have no `ok` field.
+
 ## Conventions
 
 - **Never send to the real HomeWAV API during development.** Messages cost money and are delivered. Test against `fakehw` / `hwclient-dev`.
