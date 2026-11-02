@@ -73,20 +73,24 @@ export function Thread({ contact, visitorId, mediaConfigured, online, balance, r
 
 	// The facility's prices, loaded once when the conversation opens (as the
 	// app does). They feed the price sheet and the composer's choice of type.
+	// Disabled for now: from hwclient the service answers "Requests from this
+	// device are not allowed.", while the app's own call works. Until that is
+	// understood, the sheet shows only the contact row's text and video prices,
+	// and the composer defaults pictures to Image.
 	useEffect(() => {
 		setPrison(null);
 		setPrisonError("");
-		const prisonId = contact.prison_id;
-		if (!prisonId) {
-			return;
-		}
-		let current = true;
-		ServiceApi.prison(prisonId)
-			.then((loaded) => current && setPrison(loaded))
-			.catch((reason: unknown) => current && setPrisonError(reason instanceof Error ? reason.message : String(reason)));
-		return () => {
-			current = false;
-		};
+		// const prisonId = contact.prison_id;
+		// if (!prisonId) {
+		// 	return;
+		// }
+		// let current = true;
+		// ServiceApi.prison(prisonId)
+		// 	.then((loaded) => current && setPrison(loaded))
+		// 	.catch((reason: unknown) => current && setPrisonError(reason instanceof Error ? reason.message : String(reason)));
+		// return () => {
+		// 	current = false;
+		// };
 	}, [contact.prison_id]);
 
 	const refresh = async () => {
