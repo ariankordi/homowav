@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-**hwclient** is an always-on tray app that shares the user's HomeWAV visitor session with their phone and puts a chat UI on top of it. `README.md` is the authoritative user and dev doc. The folder is still named `homowav`; the code is not.
+**HW Client** (`hwclient` in code; shipped to users as "homowav") is an always-on tray app that shares the user's HomeWAV visitor session with their phone and puts a chat UI on top of it. `README.md` is the authoritative user and dev doc. The folder and the repo are named `homowav`; the code is not.
 
 ## Commands
 
@@ -64,7 +64,7 @@ Learned from captures of iOS app 2.28.0. Field and type names are in `web/src/ty
 
 - **Never send to the real HomeWAV API during development.** Messages cost money and are delivered. Test against `fakehw` / `hwclient-dev`.
 - **The MITM proxy stays the main path.** HomeWAV allows one session per account, so a login from hwclient signs out a phone that is not using the proxy. A phone on the proxy shares hwclient's session. Password login is an opt-in extra, added because the remember cookies keep failing. It also lets hwclient work without a phone.
-- **Naming:** the code says `hwclient` (module, binary, data folder, `HWCLIENT_*` env vars, `X-HW-Client`). The user-facing name lives only in `app.Name` (Go) and `AppName` (`web/src/constants.ts`), both currently "HW Client", and will be rebranded. "homowav" survives only as the folder name. "HomeWAV"/"homewav" means the real vendor (`app.homewav.com`), which is correct.
+- **Naming:** the code says `hwclient` (module, binary, data folder, `HWCLIENT_*` env vars, `X-HW-Client`). The user-facing name lives only in `app.Name` (Go) and `AppName` (`web/src/constants.ts`), both "homowav" (lowercase). "homowav" is the external name only: the repo, the folder, the README title and what the user sees. In docs, comments and discussion call the program "the client" or "HW Client". "HomeWAV"/"homewav" means the real vendor (`app.homewav.com`), which is correct.
 - **Keep packages few.** No one-folder-per-concern Go packages: everything app-specific stays in `internal/app`. Don't add a package for something small.
 - **Audio is `.m4a` only, with no conversion.** The `elapsed_time` sent with audio is user-editable on purpose. Don't add yt-dlp-style fetching or transcoding.
 - **Unknowns, not facts:** how `image`/`video` sends to your own URL look (assumed: `type=image|video` + `gallery_url`), what `library` is, JWT expiry, idle `PHPSESSID` lifetime. `X-HomeWAV-Signature` is passed through and appears not to be enforced.

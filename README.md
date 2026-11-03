@@ -6,8 +6,6 @@ Unofficial/custom vibe-coded visitor client for HomeWAV, an app I hope you're lu
 ## Usage
 **TODO: download, setup, and usage.**
 
-NOTE: Currently the app uses a super-generic name of "HW Client" and will be renamed... eventually.
-
 i’m sorry if you had faith in me that I wouldn’t NOT have my readme for my custom prison chat frontend fully written out after I’ve been holding off publishing the completely vibeslopped work over a period of two months :((
 
 ## Features

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { ApiError, LocalApi, NotPairedStatus, ServiceApi } from "./api";
 import { ContactList } from "./components/ContactList";
+import { Logo } from "./components/Logo";
 import { Settings } from "./components/Settings";
 import { Thread } from "./components/Thread";
 import { Button, Notice } from "./components/ui";
@@ -244,7 +245,7 @@ export function App() {
 		// On wide screens the app is a centered column instead of stretching edge to edge.
 		<div class="mx-auto flex h-full w-full max-w-6xl flex-col bg-panel xl:border-x xl:border-line">
 			<header class="flex items-center gap-3 border-b border-line bg-panel px-4 py-2">
-				<span class="font-semibold">{AppName}</span>
+				<Logo />
 				<nav class="ml-auto flex gap-1 text-sm">
 					{navLink(ChatHash, "Chat", route.screen === "chat")}
 					{navLink(SettingsHash, "Settings", route.screen === "settings")}

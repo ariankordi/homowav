@@ -35,7 +35,7 @@ import (
 // when installing it, and logs. The web UI has its own copy (AppName in
 // web/src/constants.ts). Internal names (module, binary, data folder, env
 // vars) stay "hwclient" so a rename does not move anyone's settings.
-const Name = "HW Client"
+const Name = "homowav"
 
 const (
 	// dataDirName is the folder created under the user's config directory.
