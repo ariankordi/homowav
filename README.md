@@ -1,7 +1,9 @@
 # homowav
 Unofficial/custom vibe-coded visitor client for HomeWAV, an app I hope you're lucky enough to never have to use.
 
-**TODO: Create and include screenshots.**
+<img width="500" src="chat-example.jpg">
+
+Note that this was originally made for my friends to use. however, as of writing they do not gaf :( this information is totally irrelevant to the project
 
 ## Usage
 **TODO: download, setup, and usage.**
