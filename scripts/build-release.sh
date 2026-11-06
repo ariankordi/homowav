@@ -17,6 +17,10 @@
 #            macos-universal.
 #   out-dir: defaults to <repo>/dist.
 #
+# File names leave out the version (hwclient-<target>[.exe|.zip]), so a
+# link to releases/latest/download/<name> always gets the newest release.
+# The version is still stamped inside the program and the bundle.
+#
 # Environment overrides:
 #   VERSION         version to stamp (default: git describe, else "dev")
 #   TOOLCHAINS_DIR  where zig and the macOS SDK go (default <repo>/toolchains)
@@ -209,7 +213,7 @@ build_macos_universal() {
     python3 "${SCRIPT_DIR}/png-to-icns.py" "${APP_ICON}" "${bundle}/Contents/Resources/AppIcon.icns"
     sign_bundle "${bundle}"
 
-    local archive="${OUT_DIR}/${BINARY_NAME}-${VERSION}-macos-universal.zip"
+    local archive="${OUT_DIR}/${BINARY_NAME}-macos-universal.zip"
     rm -f "${archive}"
     # -y keeps symbolic links as links; -X leaves out host-specific extras.
     (cd "${work}" && zip -q -r -y -X "${archive}" "${APP_NAME}.app")
@@ -224,7 +228,7 @@ case "${TARGET}" in
     windows-x64 | windows-arm64)
         goarch="amd64"
         [[ "${TARGET}" == "windows-arm64" ]] && goarch="arm64"
-        output="${OUT_DIR}/${BINARY_NAME}-${VERSION}-${TARGET}.exe"
+        output="${OUT_DIR}/${BINARY_NAME}-${TARGET}.exe"
         # windowsgui: no console window opens next to the tray icon.
         build_pure_go windows "${goarch}" "${output}" -H=windowsgui
         echo "${output}"
@@ -232,7 +236,7 @@ case "${TARGET}" in
     linux-x86_64 | linux-aarch64)
         goarch="amd64"
         [[ "${TARGET}" == "linux-aarch64" ]] && goarch="arm64"
-        output="${OUT_DIR}/${BINARY_NAME}-${VERSION}-${TARGET}"
+        output="${OUT_DIR}/${BINARY_NAME}-${TARGET}"
         build_pure_go linux "${goarch}" "${output}"
         echo "${output}"
         ;;

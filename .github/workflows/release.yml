@@ -94,10 +94,6 @@ jobs:
     permissions:
       contents: write
     steps:
-      # For INSTRUCTIONS.md, the user-facing instructions that go along with
-      # the downloads.
-      - uses: actions/checkout@v7.0.1
-
       - uses: actions/download-artifact@v4
         with:
           path: release
@@ -110,11 +106,7 @@ jobs:
       - name: Draft the release
         env:
           GH_TOKEN: ${{ github.token }}
+        # Without a checkout, gh needs to be told which repository to use.
         run: |
-          files=(release/*)
-          if [[ -f INSTRUCTIONS.md ]]; then
-            files+=(INSTRUCTIONS.md)
-          else
-            echo "::warning::INSTRUCTIONS.md is missing, so the release has no instructions attached"
-          fi
-          gh release create "${GITHUB_REF_NAME}" --draft --verify-tag --title "${GITHUB_REF_NAME}" "${files[@]}"
+          gh release create "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --draft --verify-tag \
+            --title "${GITHUB_REF_NAME}" release/*

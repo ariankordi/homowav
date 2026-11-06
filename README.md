@@ -10,21 +10,21 @@ Get the latest release for your OS:
 
 <!-- https://github.com/diamondburned/dissent/blob/v0.0.41/README.md?plain=1#L71-L83 -->
 <div>
-    <a href="https://github.com/ariankordi/homowav/releases/download/v1.0.0/hwclient-v1.0.0-windows-x64.exe">
+    <a href="https://github.com/ariankordi/homowav/releases/latest/download/hwclient-windows-x64.exe">
         <img height="24" src="https://img.shields.io/badge/Windows-Download%20(x64)-grey?style=flat&logo=windows11&labelColor=%23357EC7" />
     </a>
-    <a href="https://github.com/ariankordi/homowav/releases/download/v1.0.0/hwclient-v1.0.0-windows-arm64.exe">
+    <a href="https://github.com/ariankordi/homowav/releases/latest/download/hwclient-windows-arm64.exe">
         <img height="24" src="https://img.shields.io/badge/Windows-Download%20(arm64)-grey?style=flat&logo=windows11&labelColor=%23357EC7" />
     </a>
     <br>
-    <a href="https://github.com/ariankordi/homowav/releases/download/v1.0.0/hwclient-v1.0.0-linux-x86_64">
+    <a href="https://github.com/ariankordi/homowav/releases/latest/download/hwclient-linux-x86_64">
         <img height="24" src="https://img.shields.io/badge/Linux-Download%20(x86__64)-grey?style=flat&logo=linux&logoColor=black&labelColor=%23ffcc33" />
     </a>
-    <a href="https://github.com/ariankordi/homowav/releases/download/v1.0.0/hwclient-v1.0.0-linux-aarch64">
+    <a href="https://github.com/ariankordi/homowav/releases/latest/download/hwclient-linux-aarch64">
         <img height="24" src="https://img.shields.io/badge/Linux-Download%20(aarch64)-grey?style=flat&logo=linux&logoColor=black&labelColor=%23ffcc33" />
     </a>
     <br>
-    <a href="https://github.com/ariankordi/homowav/releases/download/v1.0.0/hwclient-v1.0.0-macos-universal.zip">
+    <a href="https://github.com/ariankordi/homowav/releases/latest/download/hwclient-macos-universal.zip">
         <img height="24" src="https://img.shields.io/badge/macOS-Download%20(Universal)-grey?style=flat&logo=apple&logoColor=black&labelColor=%23FFFFFF" />
     </a>
 </div>
