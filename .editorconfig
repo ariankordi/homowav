@@ -1,0 +1,27 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = tab
+
+[*.{sh,yml,yaml,json}]
+indent_style = space
+indent_size = 2
+
+# The release scripts use four spaces; make-cert.sh predates that and uses tabs.
+[scripts/{build-release,fetch-macos-sdk,fetch-rcodesign,fetch-zig}.sh]
+indent_size = 4
+
+[scripts/make-cert.sh]
+indent_style = tab
+
+[*.md]
+trim_trailing_whitespace = false
+
+# Binary-ish or generated files that must stay byte for byte.
+[{go.sum,package-lock.json}]
+indent_style = unset
+insert_final_newline = unset
