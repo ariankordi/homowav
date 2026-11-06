@@ -75,3 +75,15 @@ export function useStoredNumber(key: string, fallback: number, isValid: (value: 
 	};
 	return [value, store];
 }
+
+/**
+ * A yes/no choice remembered in this browser, stored as 1 or 0 by
+ * useStoredNumber, with the same fallback when storage is unavailable.
+ * @param key - localStorage key.
+ * @param fallback - Value when nothing valid is stored.
+ * @returns The value and its setter.
+ */
+export function useStoredFlag(key: string, fallback: boolean): [boolean, (value: boolean) => void] {
+	const [stored, store] = useStoredNumber(key, fallback ? 1 : 0, (value) => value === 0 || value === 1);
+	return [stored === 1, (next) => store(next ? 1 : 0)];
+}

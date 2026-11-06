@@ -3,7 +3,8 @@
 import type { ComponentChildren } from "preact";
 import { useRef, useState } from "preact/hooks";
 import { ApiError, LocalApi } from "../api";
-import { FallbackTextLimit, VoiceExtension } from "../constants";
+import { FallbackTextLimit, OneSecondAudioKey, VoiceExtension } from "../constants";
+import { useStoredFlag } from "../hooks";
 import type { Contact, MessageType, MessagingEnabled, OutgoingMessage, PricedType } from "../types";
 import { audioDuration, classes, extensionOf, formatDollars, isHttpUrl, parseNumber } from "../util";
 import { Button, Notice } from "./ui";
@@ -17,6 +18,9 @@ const UrlMediaLabels: Record<UrlMediaType, string> = { gif: "GIF", image: "Image
 /** Extensions that suggest a video when a file or URL is chosen. */
 const VideoExtensions = [".mp4", ".mov", ".qt", ".m4v", ".webm", ".mkv", ".avi", ".3gp"];
 
+/** The length reported when "always one second" is on, as the length field shows it. */
+const OneSecond = "1";
+
 /** Decimal places of the length reported for a recording, as the app sends it. */
 const ElapsedDecimals = 3;
 
@@ -25,7 +29,8 @@ const AllEnabled: MessagingEnabled = { video: true, library: true, image: true, 
 
 /** What is attached instead of text. */
 type Attachment =
-	| { kind: "voice"; file: File; seconds: string }
+	/** seconds is what gets sent; measured is the file's own length, restored when "always one second" is turned off. */
+	| { kind: "voice"; file: File; seconds: string; measured: string }
 	| { kind: "media"; url: string; type: UrlMediaType };
 
 interface ComposerProps {
@@ -117,6 +122,7 @@ export function Composer({ contact, prices, mediaConfigured, onSend }: ComposerP
 	const [attachment, setAttachment] = useState<Attachment | null>(null);
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState("");
+	const [oneSecondAudio, setOneSecondAudio] = useStoredFlag(OneSecondAudioKey, false);
 	const audioInput = useRef<HTMLInputElement>(null);
 	const mediaInput = useRef<HTMLInputElement>(null);
 
@@ -137,10 +143,18 @@ export function Composer({ contact, prices, mediaConfigured, onSend }: ComposerP
 			return;
 		}
 		try {
-			const seconds = await audioDuration(file);
-			setAttachment({ kind: "voice", file, seconds: seconds.toFixed(ElapsedDecimals) });
+			const measured = (await audioDuration(file)).toFixed(ElapsedDecimals);
+			setAttachment({ kind: "voice", file, seconds: oneSecondAudio ? OneSecond : measured, measured });
 		} catch (reason) {
 			fail(reason);
+		}
+	};
+
+	/** Turns "always one second" on or off, and applies it to the audio already attached. */
+	const toggleOneSecond = (on: boolean) => {
+		setOneSecondAudio(on);
+		if (attachment?.kind === "voice") {
+			setAttachment({ ...attachment, seconds: on ? OneSecond : attachment.measured });
 		}
 	};
 
@@ -211,16 +225,24 @@ export function Composer({ contact, prices, mediaConfigured, onSend }: ComposerP
 						<span class="min-w-0 truncate font-medium">{attachment.file.name}</span>
 						<Button onClick={() => setAttachment(null)}>Remove</Button>
 					</div>
-					<label class="mt-2 flex items-center gap-2 text-xs text-muted">
-						Length reported, in seconds
-						<input
-							type="text"
-							inputMode="decimal"
-							value={attachment.seconds}
-							onInput={(event) => setAttachment({ ...attachment, seconds: event.currentTarget.value })}
-							class="w-24 rounded border border-line bg-panel px-2 py-1 text-ink"
-						/>
-					</label>
+					<div class="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted">
+						<label class="flex items-center gap-2">
+							Length reported, in seconds
+							<input
+								type="text"
+								inputMode="decimal"
+								value={attachment.seconds}
+								disabled={oneSecondAudio}
+								onInput={(event) => setAttachment({ ...attachment, seconds: event.currentTarget.value })}
+								class="w-24 rounded border border-line bg-panel px-2 py-1 text-ink disabled:opacity-50"
+							/>
+						</label>
+						{/* Remembered in this browser, so it stays on for the next file. */}
+						<label class="flex items-center gap-2">
+							<input type="checkbox" checked={oneSecondAudio} onChange={(event) => toggleOneSecond(event.currentTarget.checked)} />
+							Always report 1 second
+						</label>
+					</div>
 					{overVoiceLimit && <Notice tone="warn">This is longer than the facility's {voiceLimit} second limit, so it may be refused.</Notice>}
 				</div>
 			)}

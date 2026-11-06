@@ -50,6 +50,9 @@ export const OnlineColor = "green";
 /** localStorage key for the chosen check interval. */
 export const CheckIntervalKey = "hwclient.checkIntervalMs";
 
+/** localStorage key for "always report audio as one second". */
+export const OneSecondAudioKey = "hwclient.oneSecondAudio";
+
 /** Messages fetched per page of a thread. */
 export const ThreadPageSize = 25;
 
