@@ -1,5 +1,6 @@
 /** @file The message composer: text, an audio file, or media by URL. */
 
+import type { ComponentChildren } from "preact";
 import { useRef, useState } from "preact/hooks";
 import { ApiError, LocalApi } from "../api";
 import { FallbackTextLimit, VoiceExtension } from "../constants";
@@ -69,6 +70,46 @@ const guessMediaType = (
 	}
 	return enabled.image ? "image" : enabled.gif ? "gif" : "video";
 };
+
+/** Shared attributes of the composer's line icons (24-unit grid, drawn with the text color). */
+const IconProps = {
+	viewBox: "0 0 24 24",
+	fill: "none",
+	stroke: "currentColor",
+	"stroke-width": 2,
+	"stroke-linecap": "round",
+	"stroke-linejoin": "round",
+	class: "h-4 w-4 shrink-0",
+	"aria-hidden": "true",
+} as const;
+
+/** A microphone, for attaching audio. Drawn for this app. */
+const MicIcon = () => (
+	<svg {...IconProps}>
+		<rect x="9" y="3" width="6" height="11" rx="3" />
+		<path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
+	</svg>
+);
+
+/** A framed landscape, for pictures and videos. Drawn for this app. */
+const PictureIcon = () => (
+	<svg {...IconProps}>
+		<rect x="3" y="4" width="18" height="16" rx="2" />
+		<circle cx="9" cy="10" r="1.5" />
+		<path d="M21 16l-5-5-9 9" />
+	</svg>
+);
+
+/**
+ * A button's content: the icon alone on a phone, the icon and the label from
+ * the sm breakpoint up. The label stays readable to screen readers at any width.
+ */
+const IconLabel = ({ icon, label }: { icon: ComponentChildren; label: string }) => (
+	<span class="flex items-center gap-1.5">
+		{icon}
+		<span class="sr-only sm:not-sr-only">{label}</span>
+	</span>
+);
 
 /** The composer under a thread. */
 export function Composer({ contact, prices, mediaConfigured, onSend }: ComposerProps) {
@@ -237,20 +278,22 @@ export function Composer({ contact, prices, mediaConfigured, onSend }: ComposerP
 					/>
 				</div>
 			)}
-			<div class="mt-2 flex flex-wrap items-center gap-2">
+			{/* One row that never wraps, so Send stays beside the other buttons on a phone. */}
+			<div class="mt-2 flex items-center gap-2">
 				<input ref={audioInput} type="file" accept={`${VoiceExtension},audio/mp4,audio/x-m4a`} class="hidden" onChange={(event) => { void pickAudio(event.currentTarget.files?.[0]); event.currentTarget.value = ""; }} />
 				<input ref={mediaInput} type="file" accept="image/*,video/*" class="hidden" onChange={(event) => { void pickMediaFile(event.currentTarget.files?.[0]); event.currentTarget.value = ""; }} />
 				<Button onClick={() => audioInput.current?.click()} disabled={busy || !enabled.voice} title={`Attach a ${VoiceExtension} audio file`}>
-					Audio
+					<IconLabel icon={<MicIcon />} label="Audio" />
 				</Button>
 				<Button
 					onClick={() => setAttachment({ kind: "media", url: "", type: urlTypes[0] })}
 					disabled={busy || urlTypes.length === 0}
 					title="Send a picture, GIF or video by link"
 				>
-					Picture / video
+					<IconLabel icon={<PictureIcon />} label="Picture / video" />
 				</Button>
-				<span class="ml-auto text-xs text-muted">
+				{/* min-w-0 + truncate: the counter gives way before Send does. */}
+				<span class="ml-auto min-w-0 truncate text-xs text-muted">
 					{!attachment && `${text.length} / ${textLimit}`}
 					{!attachment && contact.prison_price_per_text_message && ` · $${contact.prison_price_per_text_message} per text`}
 				</span>
