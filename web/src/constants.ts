@@ -56,11 +56,18 @@ export const OneSecondAudioKey = "hwclient.oneSecondAudio";
 /** Messages fetched per page of a thread. */
 export const ThreadPageSize = 25;
 
-/** The only audio container the service accepts for voice messages. */
+/** The audio container the official app sends for voice messages, the only one known to work. */
 export const VoiceExtension = ".m4a";
 
-/** Content type the app declares for a voice part. */
-export const VoiceContentType = "audio/m4a";
+/**
+ * Audio files the composer accepts, by extension, with the content type sent
+ * for each voice part. .m4a with audio/m4a is what the app sends; the rest
+ * are untested, and the composer warns about them.
+ */
+export const VoiceFormats: Readonly<Record<string, string>> = {
+	[VoiceExtension]: "audio/m4a",
+	".mp3": "audio/mpeg",
+};
 
 /** Milliseconds per second, for converting the service's unix timestamps. */
 export const MsPerSecond = 1000;

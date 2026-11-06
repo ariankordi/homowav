@@ -3,7 +3,7 @@
 import type { ComponentChildren } from "preact";
 import { useRef, useState } from "preact/hooks";
 import { ApiError, LocalApi } from "../api";
-import { FallbackTextLimit, OneSecondAudioKey, VoiceExtension } from "../constants";
+import { FallbackTextLimit, OneSecondAudioKey, VoiceExtension, VoiceFormats } from "../constants";
 import { useStoredFlag } from "../hooks";
 import type { Contact, MessageType, MessagingEnabled, OutgoingMessage, PricedType } from "../types";
 import { audioDuration, classes, extensionOf, formatDollars, isHttpUrl, parseNumber } from "../util";
@@ -17,6 +17,12 @@ const UrlMediaLabels: Record<UrlMediaType, string> = { gif: "GIF", image: "Image
 
 /** Extensions that suggest a video when a file or URL is chosen. */
 const VideoExtensions = [".mp4", ".mov", ".qt", ".m4v", ".webm", ".mkv", ".avi", ".3gp"];
+
+/** Extensions the audio picker accepts, listed for its accept attribute and error messages. */
+const VoiceExtensions = Object.keys(VoiceFormats);
+
+/** The audio picker's accept attribute: the extensions and their content types (plus aliases browsers report for .m4a). */
+const VoiceAccept = [...VoiceExtensions, ...Object.values(VoiceFormats), "audio/mp4", "audio/x-m4a"].join(",");
 
 /** The length reported when "always one second" is on, as the length field shows it. */
 const OneSecond = "1";
@@ -138,8 +144,8 @@ export function Composer({ contact, prices, mediaConfigured, onSend }: ComposerP
 		if (!file) {
 			return;
 		}
-		if (extensionOf(file.name) !== VoiceExtension) {
-			setError(`Only ${VoiceExtension} audio is accepted. Convert the file first.`);
+		if (!VoiceExtensions.includes(extensionOf(file.name))) {
+			setError(`Only ${VoiceExtensions.join(" and ")} audio is accepted. Convert the file first.`);
 			return;
 		}
 		try {
@@ -243,6 +249,11 @@ export function Composer({ contact, prices, mediaConfigured, onSend }: ComposerP
 							Always report 1 second
 						</label>
 					</div>
+					{extensionOf(attachment.file.name) !== VoiceExtension && (
+						<Notice tone="warn">
+							Untested: the HomeWAV app sends {VoiceExtension} audio, so this format may be refused or may not play on the other end.
+						</Notice>
+					)}
 					{overVoiceLimit && <Notice tone="warn">This is longer than the facility's {voiceLimit} second limit, so it may be refused.</Notice>}
 				</div>
 			)}
@@ -302,9 +313,9 @@ export function Composer({ contact, prices, mediaConfigured, onSend }: ComposerP
 			)}
 			{/* One row that never wraps, so Send stays beside the other buttons on a phone. */}
 			<div class="mt-2 flex items-center gap-2">
-				<input ref={audioInput} type="file" accept={`${VoiceExtension},audio/mp4,audio/x-m4a`} class="hidden" onChange={(event) => { void pickAudio(event.currentTarget.files?.[0]); event.currentTarget.value = ""; }} />
+				<input ref={audioInput} type="file" accept={VoiceAccept} class="hidden" onChange={(event) => { void pickAudio(event.currentTarget.files?.[0]); event.currentTarget.value = ""; }} />
 				<input ref={mediaInput} type="file" accept="image/*,video/*" class="hidden" onChange={(event) => { void pickMediaFile(event.currentTarget.files?.[0]); event.currentTarget.value = ""; }} />
-				<Button onClick={() => audioInput.current?.click()} disabled={busy || !enabled.voice} title={`Attach a ${VoiceExtension} audio file`}>
+				<Button onClick={() => audioInput.current?.click()} disabled={busy || !enabled.voice} title={`Attach a ${VoiceExtensions.join(" or ")} audio file`}>
 					<IconLabel icon={<MicIcon />} label="Audio" />
 				</Button>
 				<Button

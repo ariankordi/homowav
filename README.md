@@ -90,7 +90,7 @@ Fill it in under **Settings -> Media storage**. If you have a bucket, you should
 
 - [x] Conversation viewing w/media, old messages
 - [x] Text messages
-- [x] Audio messages (.m4a w/no conversion)
+- [x] Audio messages (.m4a w/no conversion; .mp3 accepted but untested)
     - [x] Editable length
 - [x] Images, GIFs, videos
     - [x] Accepts `gallery_url`

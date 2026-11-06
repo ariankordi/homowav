@@ -1,7 +1,8 @@
 /** @file All network access of the UI: the local settings API and the service API. */
 
-import { ApiBase, ClientHeader, MsPerSecond, ThreadPageSize, VoiceContentType } from "./constants";
+import { ApiBase, ClientHeader, MsPerSecond, ThreadPageSize, VoiceExtension, VoiceFormats } from "./constants";
 import type { AppConfig, AppStatus, Contact, Heartbeat, Message, MessageInit, OutgoingMessage, Prison } from "./types";
+import { extensionOf } from "./util";
 
 /** The {ok, cause, body} wrapper both the service and the Go side use. */
 interface Envelope<T> {
@@ -245,7 +246,9 @@ export class ServiceApi {
 			form.set("inmate_id", contact.id);
 			form.set("sender", "visitor");
 			form.set("body", "");
-			form.set("voice", new File([outgoing.voice], outgoing.voice.name, { type: VoiceContentType }));
+			// The composer only lets accepted formats through; an unknown one is labeled like the app's own.
+			const contentType = VoiceFormats[extensionOf(outgoing.voice.name)] ?? VoiceFormats[VoiceExtension];
+			form.set("voice", new File([outgoing.voice], outgoing.voice.name, { type: contentType }));
 			return withTimestamp(await service<Message>("/api/message/send", { method: "POST", body: form }));
 		}
 		const fields = new URLSearchParams({
