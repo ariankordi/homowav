@@ -119,7 +119,7 @@ Node.js and Go are required to build.
 
 1. Build the web UI
 
-Only needed when something in `web/` changes.
+Needed once after cloning (the built UI isn't committed), then again whenever something in `web/` changes. Without it, the app only shows a "not built" notice.
 ```sh
 cd web && npm install && npm run build
 ```
@@ -139,8 +139,10 @@ For releases, `scripts/build-release.sh <target>` builds one of five targets. It
 * Run `./hwclient` for the tray/menu bar app.
     - Pass `-headless` to run only the web server.
     - Logs go to `hwclient.log` in the data folder.
-* For real-time development, use `go run ./cmd/hwclient-dev` alongside `npm run dev`.
+* For real-time development, use `go run ./cmd/hwclient-dev -data scratch/dev-data` alongside `npm run dev` (in `web/`).
     - This runs on port 8090, and "mocks" the service so nothing goes to the real backend.
+    - `-data` is required: it's a throwaway folder for the dev settings and certificates.
+    - Pass `-signed-out` to see the first-run screen. The fake login is `sam` / `correct horse`.
 
 Here are some command-line flags that aren't obvious:
 
