@@ -6,6 +6,7 @@ import { ContactList } from "./components/ContactList";
 import { Logo } from "./components/Logo";
 import { Settings } from "./components/Settings";
 import { Thread } from "./components/Thread";
+import { Welcome } from "./components/Welcome";
 import { Button, Notice } from "./components/ui";
 import {
 	AppName,
@@ -39,6 +40,8 @@ interface ChatProps {
 	status: AppStatus;
 	/** The contact open in the URL, if any. */
 	contactId: string | null;
+	/** Replaces the frame's status after signing in from the first-run screen. */
+	onStatus: (status: AppStatus) => void;
 }
 
 /** Whether a stored check interval is one of the offered choices. */
@@ -70,7 +73,7 @@ function CheckControl({ checkMs, onCheckMs, onCheckNow }: { checkMs: number; onC
 }
 
 /** Contact list and the open conversation. */
-function Chat({ status, contactId }: ChatProps) {
+function Chat({ status, contactId, onStatus }: ChatProps) {
 	const [contacts, setContacts] = useState<Contact[] | null>(null);
 	const [heartbeat, setHeartbeat] = useState<Heartbeat | null>(null);
 	const [error, setError] = useState("");
@@ -150,22 +153,16 @@ function Chat({ status, contactId }: ChatProps) {
 	};
 
 	if (!status.session.have_session) {
-		return (
-			<div class="mx-auto max-w-md p-6 text-center">
-				<h1 class="text-lg font-semibold">Not connected yet</h1>
-				<p class="mt-2 text-sm text-muted">The phone app has to connect through this computer once.</p>
-				<a href={SettingsHash} class="mt-4 inline-block rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-ink">
-					Set up the phone
-				</a>
-			</div>
-		);
+		return <Welcome status={status} onStatus={onStatus} />;
 	}
 	if (visitorId === "") {
+		// Only phone mode gets here: a password sign-in brings the account id with it.
 		return (
 			<div class="mx-auto max-w-md p-6 text-center">
-				<h1 class="text-lg font-semibold">Open your contact list in the app once</h1>
+				<h1 class="text-lg font-semibold">Open your contact list on the phone once</h1>
 				<p class="mt-2 text-sm text-muted">
-					The account id has not passed through the proxy yet. Open the HomeWAV app and look at your contacts, or enter the id under Settings.
+					The phone's login came through, but not the account id yet. Open the HomeWAV app on the phone and look at your contacts, or enter the id under
+					Settings.
 				</p>
 			</div>
 		);
@@ -257,7 +254,7 @@ export function App() {
 					<div class="p-6 text-center">{error ? <Notice tone="bad">{error}</Notice> : <Notice tone="info">Loading…</Notice>}</div>
 				)}
 				{!notPaired && status && route.screen === "settings" && <Settings status={status} onStatus={setStatus} />}
-				{!notPaired && status && route.screen === "chat" && <Chat status={status} contactId={route.contactId} />}
+				{!notPaired && status && route.screen === "chat" && <Chat status={status} contactId={route.contactId} onStatus={setStatus} />}
 			</main>
 		</div>
 	);

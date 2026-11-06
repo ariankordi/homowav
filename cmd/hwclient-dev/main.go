@@ -35,15 +35,16 @@ func main() {
 	listen := flag.String("listen", devListen, "address for the UI and the local API")
 	dataDir := flag.String("data", "", "folder for the throwaway settings and certificates (required)")
 	oneContact := flag.Bool("one-contact", false, "give the fake account a single contact")
+	signedOut := flag.Bool("signed-out", false, "start with no session, to try the first-run screen (fake login: "+fakehw.Username+" / "+fakehw.Password+")")
 	flag.Parse()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	if err := run(logger, *listen, *dataDir, *oneContact); err != nil {
+	if err := run(logger, *listen, *dataDir, *oneContact, *signedOut); err != nil {
 		logger.Error("fatal", "err", err)
 		os.Exit(1)
 	}
 }
 
-func run(logger *slog.Logger, listen, dataDir string, oneContact bool) error {
+func run(logger *slog.Logger, listen, dataDir string, oneContact, signedOut bool) error {
 	if dataDir == "" {
 		return errors.New("-data is required, for example -data scratch/dev-data")
 	}
@@ -56,7 +57,13 @@ func run(logger *slog.Logger, listen, dataDir string, oneContact bool) error {
 	fake.AutoReply = devAutoReply
 	fake.SingleContact = oneContact
 	// Always start from a fresh fake session: the fake forgets them on exit.
-	if err := os.WriteFile(filepath.Join(dataDir, stateFile), fake.SeedState(), 0o600); err != nil && !errors.Is(err, fs.ErrExist) {
+	// Signed out means no saved state at all, as on a first run.
+	statePath := filepath.Join(dataDir, stateFile)
+	if signedOut {
+		if err := os.Remove(statePath); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+	} else if err := os.WriteFile(statePath, fake.SeedState(), 0o600); err != nil && !errors.Is(err, fs.ErrExist) {
 		return err
 	}
 	instance, err := app.New(app.Options{DataDir: dataDir, Listen: listen, Transport: transport, Logger: logger, AccessLog: true})

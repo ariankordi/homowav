@@ -11,7 +11,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 go build -o hwclient ./cmd/hwclient && ./hwclient   # tray app; -headless for terminal logging
 go vet ./... && go test -race ./...           # what CI runs, plus: (cd web && npm run typecheck)
 go test -race ./internal/session -run TestName   # a single test
-go run ./cmd/hwclient-dev -data scratch/dev-data [-one-contact]   # fake service on :8090
+go run ./cmd/hwclient-dev -data scratch/dev-data [-one-contact] [-signed-out]   # fake service on :8090; -signed-out shows the first-run screen (fake login sam / correct horse)
 (cd web && npm run dev)                       # Vite live reload, proxies the API to :8090
 scripts/build-release.sh <target>             # windows-x64|windows-arm64|linux-x86_64|linux-aarch64|macos-universal → dist/
 act                                           # run .github/workflows/release.yml locally (.actrc; needs a container runtime)
@@ -63,7 +63,7 @@ Learned from captures of iOS app 2.28.0. Field and type names are in `web/src/ty
 ## Conventions
 
 - **Never send to the real HomeWAV API during development.** Messages cost money and are delivered. Test against `fakehw` / `hwclient-dev`.
-- **The MITM proxy stays the main path.** HomeWAV allows one session per account, so a login from hwclient signs out a phone that is not using the proxy. A phone on the proxy shares hwclient's session. Password login is an opt-in extra, added because the remember cookies keep failing. It also lets hwclient work without a phone.
+- **Two equal ways in; password is the default.** HomeWAV allows one session per account, so a password login from hwclient signs out a phone that is not using the proxy. Phone mode (the MITM proxy) keeps the phone signed in and its notifications, and stays fully supported. The first-run screen (`Welcome.tsx`) offers both, with password picked first, matching the README.
 - **Naming:** the code says `hwclient` (module, binary, data folder, `HWCLIENT_*` env vars, `X-HW-Client`). The user-facing name lives only in `app.Name` (Go) and `AppName` (`web/src/constants.ts`), both "homowav" (lowercase). "homowav" is the external name only: the repo, the folder, the README title and what the user sees. In docs, comments and discussion call the program "the client" or "HW Client". "HomeWAV"/"homewav" means the real vendor (`app.homewav.com`), which is correct.
 - **Keep packages few.** No one-folder-per-concern Go packages: everything app-specific stays in `internal/app`. Don't add a package for something small.
 - **Audio is `.m4a` only, with no conversion.** The `elapsed_time` sent with audio is user-editable on purpose. Don't add yt-dlp-style fetching or transcoding.

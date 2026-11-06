@@ -6,6 +6,9 @@
  */
 export const AppName = "homowav";
 
+/** The README section on phone mode, which covers what Android needs. */
+export const PhoneModeReadmeUrl = "https://github.com/ariankordi/homowav#phone-mode";
+
 /** Base path of the forwarder to the service API (Go: internal/app/forward.go). */
 export const ApiBase = "/hw";
 

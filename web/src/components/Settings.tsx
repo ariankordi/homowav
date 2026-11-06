@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "preact/hooks";
 import { LocalApi } from "../api";
-import { AppName, DefaultPort, MaxPort, MinPort, RestartPollMs, RestartWaitMs } from "../constants";
+import { AppName, DefaultPort, MaxPort, MinPort, PhoneModeReadmeUrl, RestartPollMs, RestartWaitMs } from "../constants";
 import type { AppConfig, AppStatus, MediaConfig } from "../types";
 import { formatIsoTime } from "../util";
 import { QrCode } from "./QrCode";
@@ -57,7 +57,7 @@ function ConnectionCard({ status, onStatus }: SettingsProps) {
 		}
 	};
 	return (
-		<Card title="Connection" hint={`The session shared with the phone app for ${status.api_host}.`}>
+		<Card title="Connection" hint={`The HomeWAV session for ${status.api_host}, from signing in or from a phone using the proxy.`}>
 			{session.have_session ? (
 				<Notice tone="good">Connected.</Notice>
 			) : (
@@ -106,8 +106,8 @@ const PhoneSteps: Record<PhoneKind, { open: string; trust: string; proxy: string
 /** Guesses the phone from the browser showing this page; a computer gets iPhone. */
 const guessPhone = (): PhoneKind => (/android/i.test(navigator.userAgent) ? "android" : "ios");
 
-/** The three steps that connect a phone. */
-function PhoneSetupCard({ status }: SectionProps) {
+/** The three steps that connect a phone. Also shown on the first-run screen. */
+export function PhoneSetupCard({ status }: SectionProps) {
 	const [phone, setPhone] = useState<PhoneKind>(guessPhone);
 	const steps = PhoneSteps[phone];
 	const pacUrl = status.pac_urls[0];
@@ -138,6 +138,15 @@ function PhoneSetupCard({ status }: SectionProps) {
 					</button>
 				))}
 			</div>
+			{phone === "android" && (
+				<Notice tone="warn">
+					This does not work on Android by default: Android apps do not trust user-installed certificates. See the{" "}
+					<a href={PhoneModeReadmeUrl} target="_blank" rel="noreferrer" class="underline">
+						README
+					</a>{" "}
+					for details.
+				</Notice>
+			)}
 			<ol class="list-decimal space-y-5 pl-5 text-sm">
 				<li>
 					<p class="font-medium">Trust this computer's certificate</p>
@@ -282,9 +291,9 @@ interface AccountCardProps {
 /**
  * Signing in with a password. It gets a session without the phone, and a
  * saved password lets the program sign in again by itself whenever the
- * service's remember cookies stop working.
+ * service's remember cookies stop working. Also shown on the first-run screen.
  */
-function AccountCard({ config, status, onSaved, onStatus }: AccountCardProps) {
+export function AccountCard({ config, status, onSaved, onStatus }: AccountCardProps) {
 	const [username, setUsername] = useState(config.account_username);
 	const [password, setPassword] = useState("");
 	const [save, setSave] = useState(true);
@@ -319,7 +328,7 @@ function AccountCard({ config, status, onSaved, onStatus }: AccountCardProps) {
 		});
 	const reusesSaved = config.account_password_set && username.trim() === config.account_username;
 	return (
-		<Card title="Sign in" hint="Optional. Signs in to HomeWAV from this computer, so it works without the phone.">
+		<Card title="Sign in" hint="Signs in to HomeWAV from this computer with your username and password. No phone needed.">
 			<form onSubmit={signIn} class="space-y-3">
 				<div class="grid gap-3 sm:grid-cols-2">
 					<Field label="Username" value={username} onInput={setUsername} />
